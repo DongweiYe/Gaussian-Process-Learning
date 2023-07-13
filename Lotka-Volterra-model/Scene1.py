@@ -13,7 +13,7 @@ np.random.seed(0)
 
 ### Parameters
 TrainRatio = 0.4
-DataSparsity = 0.05
+DataSparsity = 0.005
 NoiseMean = 0
 NoiseSTD = 0.2 ### STD
 NumDyn = 2
@@ -42,67 +42,51 @@ plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
 plt.legend()
 plt.show()
 
-### An addition for loop just to get proper G_i data from regression
+### Build a GP to infer the hyperparameters for each dynamic equation 
+### and proper G_i data from regression
 ytrain_hat = []
-for i in range(0,NumDyn):
-    xtkernel_add = GPy.kern.RBF(input_dim=1, variance=1, lengthscale=2)
-    xtGP_add = GPy.models.GPRegression(Xtrain,ytrain[:,i:(i+1)],xtkernel_add)
-    xtGP_add.optimize(messages=False, max_f_eval=1, max_iters=1e7)
-    xtGP_add.optimize_restarts(num_restarts=2,verbose=False)
-    ypred,yvar = xtGP_add.predict(Xtrain)
-    ytrain_hat.append(ypred)
-
-ytrain_hat = np.squeeze(np.asarray(ytrain_hat)).T
-
-
-
-### loop for the estimation of each dynamic equation
-para_mean = []
-para_cova = []
 kernellist = []
 GPlist = []
 
 for i in range(0,NumDyn):
-    
-    print('Estimate parameters in equation: ',i)
-    ### Build a GP to infer the hyperparameters for each dynamic equation
     xtkernel = GPy.kern.RBF(input_dim=1, variance=1, lengthscale=2)
     xtGP = GPy.models.GPRegression(Xtrain,ytrain[:,i:(i+1)],xtkernel)
 
-    # xtkernel.lengthscale.constrain_bounded(0.3149, 0.315, warning=False)
-    # xtkernel.variance.constrain_bounded(4.465, 4.475, warning=False)
-    # xtGP.Gaussian_noise.fix(0.2)
-
     xtGP.optimize(messages=False, max_f_eval=1, max_iters=1e7)
     xtGP.optimize_restarts(num_restarts=2,verbose=False)
-
+    
+    ypred,yvar = xtGP.predict(Xtrain)
+    ytrain_hat.append(ypred)
+    
     kernellist.append(xtkernel)
     GPlist.append(xtGP)
-    # ypred,yvar = xtGP.predict(np.expand_dims(timedata,axis=1))
-    # if i == 0:
-    #     plt.plot(timedata,x1,'.',alpha=0.2)
-    # else:
-    #     plt.plot(timedata,x2,'.',alpha=0.2)
+    
+ytrain_hat = np.squeeze(np.asarray(ytrain_hat)).T
 
-    # plt.plot(timedata,ypred,'-')
-    # plt.show()
+### loop for the estimation of each dynamic equation
+para_mean = []
+para_cova = []
+
+
+for i in range(0,NumDyn):
+    
+    print('Estimate parameters in equation: ',i)
 
     ### Compute hyperparameters from a GP of x(t)
-    GPvariance = xtkernel[0]
-    GPlengthscale = xtkernel[1]
-    GPnoise = xtGP['Gaussian_noise'][0][0]
+    GPvariance = kernellist[i][0]
+    GPlengthscale = kernellist[i][1]
+    GPnoise = GPlist[i]['Gaussian_noise'][0][0]
     print('GP hyperparameters:',GPvariance,GPlengthscale,GPnoise)    
 
     ### Construct the covariance matrix of equation (5)
-    Kuu = xtkernel.K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                 ### invertable
-    Kdd = xtkernel.dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*GPnoise ### Additional noise to make sure invertable
-    Kdu = xtkernel.dK_dX(Xtrain,Xtrain,0)                                            ### not invertable
+    Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                 ### invertable
+    Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*GPnoise ### Additional noise to make sure invertable
+    Kdu = kernellist[i].dK_dX(Xtrain,Xtrain,0)                                            ### not invertable
     Kud = Kdu.T                                                                      ### not invertable
     invKuu = np.linalg.inv(Kuu)                                                  
 
     ### If we could only assume that Kuu is invertalbe, then
     Rdd = np.linalg.inv(Kdd-Kdu@invKuu@Kud)
-    # Rdd_1 = np.linalg.inv(Kdd) + np.linalg.inv(Kdd)@Kdu@np.linalg.inv(Kuu-Kud@np.linalg.inv(Kdd)@Kdu)@Kud@np.linalg.inv(Kdd)
     Rdu = -Rdd@Kdu@invKuu
     Rud = Rdu.T
 
@@ -125,30 +109,20 @@ print('Parameter covariance: ',para_cova)
 preylist_array = []
 predlist_array = []
 
-# print(np.expand_dims(timedata[:int(num_data*TrainRatio+1)],axis=1))
-
-# plt.plot(timedata[:int(num_data*TrainRatio)],np.squeeze(prey_train_phase_mean))
-# plt.plot(timedata[:int(num_data*TrainRatio)],np.squeeze(pred_train_phase_mean))
-# plt.show()
-
 for i in range(PosteriorSample):
 
     mu1 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[0]),para_cova[0],1))
     mu2 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[1]),para_cova[1],1))
-    # print(mu1,mu2)
-    ### LV other parameters
 
+    ### LV other parameters
     x1_t0 = 1
     x2_t0 = 1
-
-    # x1_t0 = np.random.normal(prey_train_phase_mean[-1],prey_train_phase_var[-1],1) ### Prey initial
-    # x2_t0 = np.random.normal(pred_train_phase_mean[-1],pred_train_phase_var[-1],1) ### Predator intial
 
     dt = 1e-3
     T = 20
 
     preylist,predatorlist = LVmodel(x1_t0,x2_t0,T,dt,[mu1[0],-mu1[1],mu2[0],-mu2[1]])
-    if np.max(preylist) > 200:
+    if np.max(preylist) > 2000:
         pass
     else:
         preylist_array.append(preylist)
@@ -160,11 +134,6 @@ predmean = np.mean(np.asarray(predlist_array),axis=0)
 preystd = np.std(np.asarray(preylist_array),axis=0)
 predstd = np.std(np.asarray(predlist_array),axis=0)
 
-### append the mean and variance for GPR and Bayesian
-# preymean = np.append(np.squeeze(prey_train_phase_mean),preymean)
-# predmean = np.append(np.squeeze(pred_train_phase_mean),predmean)
-# preystd = np.append(np.squeeze(prey_train_phase_var),preystd)
-# predstd = np.append(np.squeeze(pred_train_phase_var),predstd)
 
 plt.figure(figsize=(17, 2))
 plt.plot(timedata,x1,'-k',linewidth=3,label='groundtruth')
