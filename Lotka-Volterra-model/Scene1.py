@@ -13,11 +13,11 @@ np.random.seed(0)
 
 ### Parameters
 TrainRatio = 0.4         ### Train/Test data split ratio
-DataSparsity = 0.25      ### Take 25% of as the total data we have
+DataSparsity = 0.0025      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
 NoisePer = 0.2           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
-PosteriorSample = 200    ### posterior sampling numbers
+PosteriorSample = 1000    ### posterior sampling numbers
 
 ### Load data and add noise
 x1 = np.load('data/x1.npy')
@@ -114,8 +114,8 @@ for i in range(0,NumDyn):
 print('Parameter mean:', para_mean)
 print('Parameter covariance: ',para_cova)
 
-np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))
-np.save('result/parameter/Cov_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_cova)))
+# np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))
+# np.save('result/parameter/Cov_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_cova)))
 
 ### Prediction with marginalization
 preylist_array = []
@@ -181,5 +181,5 @@ if NoisePer == 0:
     plt.ylim([-0.8,8])
 # plt.xlim([-1,20])
 # plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncols=3,frameon=False)
-# plt.show()
+plt.show()
 # plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
