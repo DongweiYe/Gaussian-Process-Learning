@@ -16,14 +16,14 @@ beta = -1
 gamma = -0.3
 
 dt = 1e-3
-T = 6
+T = 15
 
 xlist = tanh_model(x_t0,T,dt,[alpha,beta,gamma])
 x1list = tanh_model(x1_t,T,dt,[alpha,beta,gamma])
 
 plt.plot(np.arange(0,T+T/(T/dt),T/(T/dt)),xlist)
 plt.plot(np.arange(0,T+T/(T/dt),T/(T/dt)),x1list)
-# plt.show()
+plt.show()
 
 print(xlist.shape)
 

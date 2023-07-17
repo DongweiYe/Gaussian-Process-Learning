@@ -2,7 +2,12 @@ import numpy as np
 import GPy
 import matplotlib.pyplot as plt
 from dynamical_system import *
+from neuralODE import *
+import torch.optim as optim
+import torch
+from torch.utils.data import DataLoader, TensorDataset
 np.random.seed(0)
+torch.manual_seed(0)
 
 
 ######################################
@@ -13,10 +18,13 @@ np.random.seed(0)
 
 ### Parameters
 TrainRatio = 1/3         ### Train/Test data split ratio
-DataSparsity = 1         ### Note different from scenarios 1 and 2, here we take 100% of as total data we have
+DataSparsity = 0.01         ### Note different from scenarios 1 and 2, here we take 100% of as total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0.05           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 PosteriorSample = 200    ### posterior sampling numbers
+
+### NN parameters
+n_epochs = 10000
 
 ### Load data and add noise
 x = np.load('data/tanh_x_ic1.npy')
@@ -29,79 +37,93 @@ num_data = x.shape[0] - 1 ### 0 -> K, using [0,K-1] for int
 num_train = int((num_data*TrainRatio)*DataSparsity) 
 samplelist = np.random.choice(np.arange(0,int(num_data*TrainRatio)),num_train,replace=False)
 
+print('Data from training: ',num_train)
 
 ### Define training data 
 Xtrain = np.expand_dims(timedata[samplelist],axis=1)
 ytrain = np.expand_dims(xdata[samplelist],axis=1)
 
-plt.plot(Xtrain,ytrain,'*',label='x dynamics')
+plt.plot(timedata,x,'*',label='x dynamics')
 plt.legend()
 plt.show()
 
-# ### Build a GP to infer the hyperparameters for each dynamic equation 
-# ### and proper G_i data from regression
-# ytrain_hat = []
-# kernellist = []
-# GPlist = []
+### Build a GP to infer the hyperparameters for each dynamic equation 
+### and proper G_i data from regression
+xtkernel = GPy.kern.RBF(input_dim=1, variance=1, lengthscale=2)
+xtGP = GPy.models.GPRegression(Xtrain,ytrain,xtkernel)
 
-# for i in range(0,NumDyn):
-#     xtkernel = GPy.kern.RBF(input_dim=1, variance=1, lengthscale=2)
-#     xtGP = GPy.models.GPRegression(Xtrain,ytrain[:,i:(i+1)],xtkernel)
+xtGP.optimize(messages=False, max_f_eval=1, max_iters=1e7)
+xtGP.optimize_restarts(num_restarts=2,verbose=False)
 
-#     xtGP.optimize(messages=False, max_f_eval=1, max_iters=1e7)
-#     xtGP.optimize_restarts(num_restarts=2,verbose=False)
+ytrain_hat,ytrain_hat_var = xtGP.predict(Xtrain)
+
+plt.plot(Xtrain,ytrain,'b*',label='GT')
+plt.plot(Xtrain,ytrain_hat,'o',color='tab:red',label='prediction',alpha=0.5)
+plt.legend()
+plt.show()
+
+### Compute hyperparameters from a GP of x(t)
+GPvariance = xtkernel[0]
+GPlengthscale = xtkernel[1]
+GPnoise = xtGP['Gaussian_noise'][0][0]
+print('GP hyperparameters:',GPvariance,GPlengthscale,GPnoise)    
+
+### Construct the covariance matrix of equation (5)
+if NoisePer == 0:
+    Kuu = xtkernel.K(Xtrain) + np.identity(Xtrain.shape[0])*1e-6
+    Kdd = xtkernel.dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-6
+    #print(np.linalg.cond(Kuu))
+else:
+    Kuu = xtkernel.K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                    ### invertable
+    Kdd = xtkernel.dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*GPnoise ### Additional noise to make sure invertable
+
+Kdu = xtkernel.dK_dX(Xtrain,Xtrain,0)                                                  ### not invertable
+Kud = Kdu.T                                                                                 ### not invertable
+invKuu = np.linalg.inv(Kuu)                                                  
+
+Rdd = np.linalg.inv(Kdd-Kdu@invKuu@Kud)
+
+### Compute the true value of d_i using GP
+d_hat = Kdu@invKuu@ytrain
+
+### Build neural ODE
+NNmodel = neuralODE()
+# MSEloss = nn.MSELoss()
+MSEloss = MSERddloss()
+optimizer = optim.Adam(NNmodel.parameters(), lr=0.01)
+
+# dataset = TensorDataset(torch.from_numpy(ytrain_hat), torch.from_numpy(d_hat))
+# dataloader = DataLoader(dataset, batch_size=num_train, shuffle=False)
+# print(torch.from_numpy(ytrain_hat).shape)
+# print(torch.from_numpy(d_hat).shape)
+
+for i in range(n_epochs):
     
-#     ypred,yvar = xtGP.predict(Xtrain)
-#     ytrain_hat.append(ypred)
-    
-#     kernellist.append(xtkernel)
-#     GPlist.append(xtGP)
-    
-# ytrain_hat = np.squeeze(np.asarray(ytrain_hat)).T
+    f_pred = NNmodel(torch.from_numpy(ytrain_hat))
+    cost = MSEloss(f_pred,torch.from_numpy(d_hat),torch.from_numpy(Rdd))
 
-# ### loop for the estimation of each dynamic equation
-# para_mean = []
-# para_cova = []
+    #backprop
+    optimizer.zero_grad()
+    cost.backward()
+    optimizer.step()
 
+    if i%2000 == 0:
+        print('Loss:',cost)
 
-# for i in range(0,NumDyn):
-    
-#     print('Estimate parameters in equation: ',i)
+print("Model Parameters:")
+for name, param in NNmodel.named_parameters():
+    print(name, param)
 
-#     ### Compute hyperparameters from a GP of x(t)
-#     GPvariance = kernellist[i][0]
-#     GPlengthscale = kernellist[i][1]
-#     GPnoise = GPlist[i]['Gaussian_noise'][0][0]
-#     print('GP hyperparameters:',GPvariance,GPlengthscale,GPnoise)    
+prediction = NNmodel(torch.from_numpy(ytrain_hat))
 
-#     ### Construct the covariance matrix of equation (5)
-#     if NoisePer == 0:
-#         Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*1e-4
-#         Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-4
-#     else:
-#         Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                    ### invertable
-#         Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*GPnoise ### Additional noise to make sure invertable
+plt.plot(ytrain_hat,d_hat,'*',label='GT')
+plt.plot(ytrain_hat,prediction.detach().numpy(),'o',label='prediction')
+plt.plot(ytrain_hat,-0.3*np.tanh(ytrain_hat*2-1),'o',label='analytical')
+plt.legend()
+plt.show()
 
-#     Kdu = kernellist[i].dK_dX(Xtrain,Xtrain,0)                                                  ### not invertable
-#     Kud = Kdu.T                                                                                 ### not invertable
-#     invKuu = np.linalg.inv(Kuu)                                                  
-
-#     ### If we could only assume that Kuu is invertalbe, then
-#     Rdd = np.linalg.inv(Kdd-Kdu@invKuu@Kud)
-#     Rdu = -Rdd@Kdu@invKuu
-#     Rud = Rdu.T
-
-#     # print(np.linalg.cond(Kuu))
-
-#     if i == 0:
-#         G = np.hstack((ytrain_hat[:,0:1],np.multiply(ytrain_hat[:,0:1],ytrain_hat[:,1:2])))
-#     else:
-#         G = np.hstack((np.multiply(ytrain_hat[:,0:1],ytrain_hat[:,1:2]),ytrain_hat[:,1:2]))
-
-#     mu_mean = -np.linalg.inv(G.T@Rdd@G)@G.T@Rdu@ytrain[:,i:(i+1)]
-#     mu_covariance = np.linalg.inv(G.T@Rdd@G)
-#     para_mean.append(mu_mean)
-#     para_cova.append(mu_covariance)
+# para_mean.append(mu_mean)
+# para_cova.append(mu_covariance)
 
 # print('Parameter mean:', para_mean)
 # print('Parameter covariance: ',para_cova)
