@@ -10,6 +10,8 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 
+
+
 ######################################
 ############## Scenario 1 ############
 ######################################
@@ -17,20 +19,20 @@ torch.manual_seed(0)
 ### This applies to Kdd, Kuu, Kud and Kdu
 
 ### Parameters
-TrainRatio = 1/3         ### Train/Test data split ratio
-DataSparsity = 0.01         ### Note different from scenarios 1 and 2, here we take 100% of as total data we have
+TrainRatio = 0.2         ### Train/Test data split ratio
+DataSparsity = 0.1         ### Note different from scenarios 1 and 2, here we take 100% of as total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.05           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0.1           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 PosteriorSample = 200    ### posterior sampling numbers
 
 ### NN parameters
-n_epochs = 10000
+n_epochs = 15000
 
 ### Load data and add noise
-x = np.load('data/tanh_x_ic1.npy')
+x = np.load('data/e2_x_ic1.npy')
 timedata = np.load('data/time.npy')
 
-NoiseSTD = NoisePer*np.mean(x)
+NoiseSTD = np.abs(NoisePer*np.mean(x))
 xdata = x + np.random.normal(NoiseMean,NoiseSTD,x.shape[0])
 
 num_data = x.shape[0] - 1 ### 0 -> K, using [0,K-1] for int
@@ -88,8 +90,10 @@ d_hat = Kdu@invKuu@ytrain
 
 ### Build neural ODE
 NNmodel = neuralODE()
+
 # MSEloss = nn.MSELoss()
 MSEloss = MSERddloss()
+
 optimizer = optim.Adam(NNmodel.parameters(), lr=0.01)
 
 # dataset = TensorDataset(torch.from_numpy(ytrain_hat), torch.from_numpy(d_hat))
@@ -110,17 +114,70 @@ for i in range(n_epochs):
     if i%2000 == 0:
         print('Loss:',cost)
 
-print("Model Parameters:")
-for name, param in NNmodel.named_parameters():
-    print(name, param)
+# print("Model Parameters:")
+# for name, param in NNmodel.named_parameters():
+#     print(param[0])
 
 prediction = NNmodel(torch.from_numpy(ytrain_hat))
-
-plt.plot(ytrain_hat,d_hat,'*',label='GT')
-plt.plot(ytrain_hat,prediction.detach().numpy(),'o',label='prediction')
-plt.plot(ytrain_hat,-0.3*np.tanh(ytrain_hat*2-1),'o',label='analytical')
-plt.legend()
+plt.plot(ytrain_hat,prediction.detach().numpy(),'*k')
+plt.plot(ytrain_hat,d_hat,'or')
 plt.show()
+####################### Temp visualization ########################
+# para_mean = []
+# for name, param in NNmodel.named_parameters():
+#     para_mean.append(param[0].detach().numpy().item())
+
+### Set other parameters and rerun the model 
+x_t0 = 1
+dt = 1e-3
+T = 5
+
+# print(para_mean)
+# xlist = tanh_model(x_t0,T,dt,[para_mean[0],para_mean[1],para_mean[2]])
+
+num_T = int(T/dt)
+pre_x = x_t0
+xlist = [x_t0]
+
+for timestep in range(num_T):
+    pre_x_tensor = torch.tensor([[pre_x]]).to(torch.float64)
+    f_pred = NNmodel(pre_x_tensor)
+    next_x = dt*(f_pred[0][0].detach().numpy()) + pre_x
+
+    xlist.append(next_x)
+    pre_x = next_x
+
+xlist = np.array(xlist)
+
+plt.figure(figsize=(17, 2))
+params = {
+            'axes.labelsize': 21,
+            'font.size': 21,
+            'legend.fontsize': 23,
+            'xtick.labelsize': 21,
+            'ytick.labelsize': 21,
+            'text.usetex': False,
+            'axes.linewidth': 2,
+            'xtick.major.width': 2,
+            'ytick.major.width': 2,
+            'xtick.major.size': 2,
+            'ytick.major.size': 2,
+        }
+plt.rcParams.update(params)
+plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
+plt.plot(timedata,xlist,'--',color='tab:orange',linewidth=3,label=r'$x$ prediction')
+plt.scatter(Xtrain,ytrain,marker='X',s=80,color='darkorange',edgecolors='k',label='training data',zorder=2)
+plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
+# plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
+
+# if NoisePer == 0:
+#     plt.ylim([-0.8,8])
+# plt.xlim([-1,20])
+# plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
+plt.show()
+# plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+# plt.savefig('result/figure/legend.png',bbox_inches='tight')
+###################################################################
 
 # para_mean.append(mu_mean)
 # para_cova.append(mu_covariance)
