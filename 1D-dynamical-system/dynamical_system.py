@@ -31,19 +31,3 @@ def sinexp_model(x_initial,total_time,dt):
 
     return np.array(xlist)
 
-
-
-
-def unknown_model(x_initial,total_time,dt,f):
-    
-    xlist = [x_initial]
-    num_T = int(total_time/dt)
-    pre_x = x_initial
-    for timestep in range(num_T):
-        
-        next_x = dt*f[timestep]+pre_x
-
-        xlist.append(next_x)
-        pre_x = next_x
-
-    return np.array(xlist)
