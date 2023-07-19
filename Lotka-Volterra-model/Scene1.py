@@ -13,11 +13,12 @@ np.random.seed(0)
 
 ### Parameters
 TrainRatio = 0.4         ### Train/Test data split ratio
-DataSparsity = 0.0025      ### Take 25% of as the total data we have
+DataSparsity = 0.025      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.2           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0.1           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 PosteriorSample = 1000    ### posterior sampling numbers
+IC_test = 1
 
 ### Load data and add noise
 x1 = np.load('data/x1.npy')
@@ -127,11 +128,11 @@ for i in range(PosteriorSample):
     mu2 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[1]),para_cova[1],1))
 
     ### LV other parameters
-    x1_t0 = 1
-    x2_t0 = 1
+    x1_t0 = 2.5
+    x2_t0 = 3
 
     dt = 1e-3
-    T = 20
+    T = 10
 
     preylist,predatorlist = LVmodel(x1_t0,x2_t0,T,dt,[mu1[0],-mu1[1],mu2[0],-mu2[1]])
     if np.max(preylist) > 20 or np.max(predatorlist) > 20:
@@ -141,14 +142,23 @@ for i in range(PosteriorSample):
         predlist_array.append(predatorlist)
 
 
+#### Addition result for different initial conditions
+if IC_test == 1:
+    preylist_IC,predatorlist_IC = LVmodel(x1_t0,x2_t0,T,dt,[1.5,1,1,3])
+
+
+
 preymean = np.mean(np.asarray(preylist_array),axis=0)
 predmean = np.mean(np.asarray(predlist_array),axis=0)
 preystd = np.std(np.asarray(preylist_array),axis=0)
 predstd = np.std(np.asarray(predlist_array),axis=0)
 
 
-plt.figure(figsize=(17, 2))
-params = {
+
+
+if IC_test == 1:
+    plt.figure(figsize=(9, 2))
+    params = {
             'axes.labelsize': 21,
             'font.size': 21,
             'legend.fontsize': 23,
@@ -161,25 +171,55 @@ params = {
             'xtick.major.size': 2,
             'ytick.major.size': 2,
         }
-plt.rcParams.update(params)
+    plt.rcParams.update(params)
+    new_timedata = np.arange(0,T+T/(T/dt)*0.1,T/(T/dt))
+    plt.plot(new_timedata,preylist_IC,'-k',linewidth=3,label='ground truth')
+    plt.plot(new_timedata,predatorlist_IC,'-k',linewidth=3)
 
+    plt.plot(new_timedata,preymean,'--',color='royalblue',linewidth=3,label=r'$x_1$ prediction')
+    plt.plot(new_timedata,predmean,'--',color='tab:orange',linewidth=3,label=r'$x_2$ prediction')
 
-plt.plot(timedata,x2,'-k',linewidth=3)
+    plt.fill_between(new_timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5)
+    plt.fill_between(new_timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5)
+    plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
+    # plt.show()
+    plt.savefig('result/figure/ICs/'+str(x1_t0)+'&'+str(x2_t0)+'111.png',bbox_inches='tight')
 
-plt.plot(timedata,preymean,'--',color='royalblue',linewidth=3,label=r'$x_1$ prediction')
-plt.plot(timedata,predmean,'--',color='tab:orange',linewidth=3,label=r'$x_2$ prediction')
-plt.fill_between(timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5)
-plt.fill_between(timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5)
+else:
+    plt.figure(figsize=(17, 2))
+    params = {
+            'axes.labelsize': 21,
+            'font.size': 21,
+            'legend.fontsize': 23,
+            'xtick.labelsize': 21,
+            'ytick.labelsize': 21,
+            'text.usetex': False,
+            'axes.linewidth': 2,
+            'xtick.major.width': 2,
+            'ytick.major.width': 2,
+            'xtick.major.size': 2,
+            'ytick.major.size': 2,
+        }
+    plt.rcParams.update(params)
+    plt.plot(timedata,x1,'-k',linewidth=3,label='ground truth')
+    plt.plot(timedata,x2,'-k',linewidth=3)
 
-plt.scatter(Xtrain,ytrain[:,0],marker='X',s=80,color='royalblue',edgecolors='k',label='training data '+r'($x_1$)',zorder=2)
-plt.scatter(Xtrain,ytrain[:,1],marker='X',s=80,color='darkorange',edgecolors='k',label='training data '+r'($x_2$)',zorder=2)
+    plt.plot(timedata,preymean,'--',color='royalblue',linewidth=3,label=r'$x_1$ prediction')
+    plt.plot(timedata,predmean,'--',color='tab:orange',linewidth=3,label=r'$x_2$ prediction')
 
-plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
-plt.plot(timedata,x1,'-k',linewidth=3,label='ground truth')
+    plt.fill_between(timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5)
+    plt.fill_between(timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5)
 
-if NoisePer == 0:
-    plt.ylim([-0.8,8])
-# plt.xlim([-1,20])
-# plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncols=3,frameon=False)
-plt.show()
-# plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+    plt.scatter(Xtrain,ytrain[:,0],marker='X',s=80,color='royalblue',edgecolors='k',label='training data '+r'($x_1$)',zorder=2)
+    plt.scatter(Xtrain,ytrain[:,1],marker='X',s=80,color='darkorange',edgecolors='k',label='training data '+r'($x_2$)',zorder=2)
+
+    plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
+    
+
+    if NoisePer == 0:
+        plt.ylim([-0.8,8])
+    # plt.xlim([-1,20])
+    # plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncols=3,frameon=False)
+    plt.show()
+    # plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+    
