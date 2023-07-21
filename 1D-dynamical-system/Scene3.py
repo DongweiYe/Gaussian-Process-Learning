@@ -7,10 +7,11 @@ import torch.optim as optim
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
+from pyro.infer import MCMC, NUTS
 
 np.random.seed(0)
 torch.manual_seed(0)
-
+pyro.set_rng_seed(0)
 
 
 
@@ -20,10 +21,11 @@ torch.manual_seed(0)
 
 ### Parameters
 TrainRatio = 0.25         ### Train/Test data split ratio
-DataSparsity = 0.25       ### Note different from scenarios 1 and 2, here we take 100% of as total data we have
+DataSparsity = 0.025       ### Note different from scenarios 1 and 2, here we take 100% of as total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.2          ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0          ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 PosteriorSample = 200    ### posterior sampling numbers
+Bayesian = 1
 
 ### NN parameters
 n_epochs = 10000
@@ -86,7 +88,8 @@ Kdu = xtkernel.dK_dX(Xtrain,Xtrain,0)
 Kud = Kdu.T
 invKuu = np.linalg.inv(Kuu)                                                  
 
-Rdd = np.linalg.inv(Kdd-Kdu@invKuu@Kud)
+invRdd = Kdd-Kdu@invKuu@Kud
+Rdd = np.linalg.inv(invRdd)
 
 ### Compute the true value of d_i using GP
 d_hat = Kdu@invKuu@ytrain
@@ -94,41 +97,40 @@ d_hat = Kdu@invKuu@ytrain
 ##############################################
 ############# Build neural ODE ###############
 ##############################################
-NNmodel = neuralODE()
-# for name, param in NNmodel.named_parameters():
-#     print(param)
-count = 0
-for name, param in NNmodel.named_parameters():
-    if ("sampler" not in name) and param.requires_grad:
-        count += param.numel()
-print(count)
+if Bayesian == 1:
+    NNmodel = BayesNeuralODE(torch.from_numpy(invRdd))
+    nuts_kernel = NUTS(NNmodel, jit_compile=False)
+    mcmc = MCMC(nuts_kernel, num_samples=150)
+    mcmc.run(torch.from_numpy(ytrain_hat), torch.from_numpy(d_hat))
 
-# MSEloss = nn.MSELoss() ### least square (when Rdd -> I)
-MSEloss = MSERddloss() ### 
+    print(NNmodel.fc1_weight,NNmodel.fc1_bias,NNmodel.fc2_weight)
 
-optimizer = optim.Adam(NNmodel.parameters(), lr=0.01)
+else:
+    NNmodel = neuralODE()
+    MSEloss = MSERddloss() ### 
+    # MSEloss = nn.MSELoss() ### least square (when Rdd -> I)
+    optimizer = optim.Adam(NNmodel.parameters(), lr=0.01)
+    # dataset = TensorDataset(torch.from_numpy(ytrain_hat), torch.from_numpy(d_hat))
+    # dataloader = DataLoader(dataset, batch_size=num_train, shuffle=False)
 
-# dataset = TensorDataset(torch.from_numpy(ytrain_hat), torch.from_numpy(d_hat))
-# dataloader = DataLoader(dataset, batch_size=num_train, shuffle=False)
+    for i in range(n_epochs):
+        
+        f_pred = NNmodel(torch.from_numpy(ytrain_hat))
+        cost = MSEloss(f_pred,torch.from_numpy(d_hat),torch.from_numpy(Rdd))
 
-for i in range(n_epochs):
-    
-    f_pred = NNmodel(torch.from_numpy(ytrain_hat))
-    cost = MSEloss(f_pred,torch.from_numpy(d_hat),torch.from_numpy(Rdd))
+        #backprop
+        optimizer.zero_grad()
+        cost.backward()
+        optimizer.step()
 
-    #backprop
-    optimizer.zero_grad()
-    cost.backward()
-    optimizer.step()
+        # print loss
+        if i%2000 == 0:
+            print('Loss:',cost)
 
-    # print loss
-    if i%2000 == 0:
-        print('Loss:',cost)
-
-### Print out the parameters
-print("Model Parameters:")
-for name, param in NNmodel.named_parameters():
-    print(param)
+    ### Print out the parameters
+    print("Model Parameters:")
+    for name, param in NNmodel.named_parameters():
+        print(param)
 
 ### Visualization prediction of f(x) and compare it to di
 prediction = NNmodel(torch.from_numpy(ytrain_hat))
