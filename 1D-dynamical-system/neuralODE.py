@@ -52,14 +52,14 @@ class MSERddloss(nn.Module):
 
 class BayesNeuralODE(PyroModule):
 
-    def __init__(self,inverseRdd,prior_scale=0.1):
+    def __init__(self,inverseRdd,prior_scale=10):
         super().__init__()
         # 1d input -> 1 hidden layer with one node -> 1d output 
 
         ### Example 1
-        self.fc1_weight = PyroSample(dist.Normal(2., prior_scale).expand([1, 1]).to_event(2))
-        self.fc1_bias = PyroSample(dist.Normal(-1., prior_scale).expand([1]).to_event(1))
-        self.fc2_weight = PyroSample(dist.Normal(-0.3, prior_scale).expand([1, 1]).to_event(2))
+        self.fc1_weight = PyroSample(dist.Normal(0, prior_scale).expand([1, 1]).to_event(2))
+        self.fc1_bias = PyroSample(dist.Normal(0, prior_scale).expand([1]).to_event(1))
+        self.fc2_weight = PyroSample(dist.Normal(0, prior_scale).expand([1, 1]).to_event(2))
         self.invRdd = inverseRdd
         print(self.fc1_weight,self.fc1_bias,self.fc2_weight)
         #self.fc2_bias = PyroSample(dist.Normal(0., 1.).expand([1]).to_event(1))
@@ -74,8 +74,8 @@ class BayesNeuralODE(PyroModule):
 
     def forward(self, x,y=None):
         ### Example 3
-        x = torch.tanh(torch.matmul(x, self.fc1_weight.t().double()) + self.fc1_bias.double())
-        x = torch.matmul(x, self.fc2_weight.t().double())
+        x = torch.tanh(torch.matmul(x, self.fc1_weight.double()) + self.fc1_bias.double())
+        x = torch.matmul(x, self.fc2_weight.double())
 
         with pyro.plate("data", x.shape[0]):
             obs = pyro.sample("obs", dist.MultivariateNormal(torch.squeeze(x), self.invRdd),obs=y)
@@ -87,4 +87,4 @@ class BayesNeuralODE(PyroModule):
         # x = torch.tanh(self.fc3(x))
         # x = self.fc4(x)
 
-        return torch.squeeze(x)
+        return x
