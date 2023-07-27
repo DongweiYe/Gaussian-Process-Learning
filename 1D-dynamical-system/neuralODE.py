@@ -57,11 +57,19 @@ class BayesNeuralODE(PyroModule):
         # 1d input -> 1 hidden layer with one node -> 1d output 
 
         ### Example 1
-        self.fc1_weight = PyroSample(dist.Normal(0, prior_scale).expand([1, 1]).to_event(2))
-        self.fc1_bias = PyroSample(dist.Normal(0, prior_scale).expand([1]).to_event(1))
-        self.fc2_weight = PyroSample(dist.Normal(0, prior_scale).expand([1, 1]).to_event(2))
+        self.linear1 = PyroModule[nn.Linear](1, 1)
+        self.linear1.weight = PyroSample(dist.Normal(0., prior_scale).expand([1, 1]).to_event(2))
+        self.linear1.bias = PyroSample(dist.Normal(0., prior_scale).expand([1]).to_event(1))
+
+        self.linear2 = PyroModule[nn.Linear](1, 1, bias=False)
+        self.linear2.weight = PyroSample(dist.Normal(0., prior_scale).expand([1, 1]).to_event(2))
+
+        # self.fc1_weight = PyroSample(dist.Normal(0, prior_scale).expand([1, 1]).to_event(2))
+        # self.fc1_bias = PyroSample(dist.Normal(0, prior_scale).expand([1]).to_event(1))
+        # self.fc2_weight = PyroSample(dist.Normal(0, prior_scale).expand([1, 1]).to_event(2))
         self.invRdd = inverseRdd
-        print(self.fc1_weight,self.fc1_bias,self.fc2_weight)
+
+        # print(self.fc1_weight,self.fc1_bias,self.fc2_weight)
         #self.fc2_bias = PyroSample(dist.Normal(0., 1.).expand([1]).to_event(1))
 
         ### Example 2 
@@ -74,8 +82,10 @@ class BayesNeuralODE(PyroModule):
 
     def forward(self, x,y=None):
         ### Example 3
-        x = torch.tanh(torch.matmul(x, self.fc1_weight.double()) + self.fc1_bias.double())
-        x = torch.matmul(x, self.fc2_weight.double())
+        x = torch.tanh(self.linear1(x))
+        x = self.linear2(x)
+        # x = torch.tanh(torch.matmul(x, self.fc1_weight.double()) + self.fc1_bias.double())
+        # x = torch.matmul(x, self.fc2_weight.double())
 
         with pyro.plate("data", x.shape[0]):
             obs = pyro.sample("obs", dist.MultivariateNormal(torch.squeeze(x), self.invRdd),obs=y)
@@ -87,4 +97,4 @@ class BayesNeuralODE(PyroModule):
         # x = torch.tanh(self.fc3(x))
         # x = self.fc4(x)
 
-        return x
+        return torch.squeeze(x)

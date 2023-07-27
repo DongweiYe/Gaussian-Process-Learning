@@ -25,14 +25,14 @@ pyro.set_rng_seed(0)
 
 ### Parameters
 TrainRatio = 0.25         ### Train/Test data split ratio
-DataSparsity = 0.25       ### Note different from scenarios 1 and 2, here we take 100% of as total data we have
+DataSparsity = 0.025       ### Note different from scenarios 1 and 2, here we take 100% of as total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.1          ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0          ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 PosteriorSample = 200    ### posterior sampling numbers
 Bayesian = 1
 
 ### NN parameters
-n_epochs = 5000
+n_epochs = 15000
 
 ### Load data and add noise
 x = np.load('data/tanh_x_ic1.npy')
@@ -103,38 +103,25 @@ d_hat = Kdu@invKuu@ytrain
 ##############################################
 if Bayesian == 1:
     NNmodel = BayesNeuralODE(torch.from_numpy(invRdd))
-    # nuts_kernel = NUTS(NNmodel, jit_compile=False)
-    # mcmc = MCMC(nuts_kernel, num_samples=500)
-    # mcmc.run(torch.from_numpy(ytrain_hat), torch.from_numpy(d_hat))
-    # predictive = Predictive(model=NNmodel, posterior_samples=mcmc.get_samples())
-    # preds = predictive(torch.from_numpy(ytrain_hat))
-
 
     guide = AutoDiagonalNormal(NNmodel)
-    adam = pyro.optim.Adam({"lr": 1e-3})
+    adam = pyro.optim.Adam({"lr": 1e-2})
     svi = SVI(NNmodel, guide, adam, loss=Trace_ELBO())
 
     pyro.clear_param_store()
-    bar = trange(10000)
+    bar = trange(n_epochs)
 
     for epoch in bar:
-        loss = svi.step(torch.from_numpy(ytrain_hat), torch.squeeze(torch.from_numpy(d_hat)))
+        loss = svi.step(torch.from_numpy(ytrain_hat).float(), torch.squeeze(torch.from_numpy(d_hat)).float())
         bar.set_postfix(loss=f'{loss / x.shape[0]:.3f}')
 
     # print(torch.squeeze(NNmodel.fc1_weight).mean(),torch.squeeze(NNmodel.fc1_bias).mean(),torch.squeeze(NNmodel.fc2_weight).mean())
     # print(torch.squeeze(NNmodel.fc1_weight).std(),torch.squeeze(NNmodel.fc1_bias).std(),torch.squeeze(NNmodel.fc2_weight).std())
     
-    predictive = Predictive(model=NNmodel, guide=guide, num_samples=500)
-    preds = predictive(torch.from_numpy(ytrain_hat),None)
-    
-    for k, v in preds.items():
-        print(f"{k}: {tuple(v.shape)}")
+    guide.requires_grad_(False)
 
-    a1 = preds['fc1_weight'].T.detach().numpy().mean()
-    a2 = preds['fc1_bias'].T.detach().numpy().mean()
-    a3 = preds['fc2_weight'].T.detach().numpy().mean()
-
-    print('parameters:',a1,a2,a3)
+    for name, value in pyro.get_param_store().items():
+        print(name, pyro.param(name))
 
     # y_mean = np.mean(np.mean(ypreds,axis=2),axis=1)
     # y_std = np.std(np.std(ypreds,axis=2),axis=1)
