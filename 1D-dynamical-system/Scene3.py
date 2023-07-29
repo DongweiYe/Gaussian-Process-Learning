@@ -6,6 +6,7 @@ from neuralODE import *
 import torch.optim as optim
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 from pyro.infer import MCMC, NUTS
 from pyro.infer import Predictive
@@ -27,15 +28,15 @@ pyro.set_rng_seed(0)
 TrainRatio = 0.25         ### Train/Test data split ratio
 DataSparsity = 0.025       ### Note different from scenarios 1 and 2, here we take 100% of as total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0          ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0         ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 PosteriorSample = 200    ### posterior sampling numbers
-Bayesian = 1
+Bayesian = 1            ### 0 -> MAP, 1-> Bayesian
 
 ### NN parameters
 n_epochs = 15000
-
+posterior_sample_num = 1000
 ### Load data and add noise
-x = np.load('data/tanh_x_ic1.npy')
+x = np.load('data/sin_x_ic.npy')
 timedata = np.load('data/time.npy')
 
 NoiseSTD = NoisePer*np.mean(x)
@@ -81,8 +82,8 @@ print('GP hyperparameters:',GPvariance,GPlengthscale,GPnoise)
 
 ### Construct the covariance matrix 
 if NoisePer == 0:
-    Kuu = xtkernel.K(Xtrain) + np.identity(Xtrain.shape[0])*1e-6
-    Kdd = xtkernel.dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-6
+    Kuu = xtkernel.K(Xtrain) + np.identity(Xtrain.shape[0])*1e-4
+    Kdd = xtkernel.dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-4
     #print(np.linalg.cond(Kuu))
 else:
     Kuu = xtkernel.K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                    
@@ -94,7 +95,7 @@ invKuu = np.linalg.inv(Kuu)
 
 invRdd = Kdd-Kdu@invKuu@Kud
 Rdd = np.linalg.inv(invRdd)
-
+print(invRdd.shape)
 ### Compute the true value of d_i using GP
 d_hat = Kdu@invKuu@ytrain
 
@@ -123,15 +124,64 @@ if Bayesian == 1:
     for name, value in pyro.get_param_store().items():
         print(name, pyro.param(name))
 
-    # y_mean = np.mean(np.mean(ypreds,axis=2),axis=1)
-    # y_std = np.std(np.std(ypreds,axis=2),axis=1)
-  
+    parameter_mean = pyro.get_param_store()._params['AutoDiagonalNormal.loc']
+    parameter_std = torch.exp(pyro.get_param_store()._params['AutoDiagonalNormal.scale'])
+    parameter_cov = torch.diag(parameter_std)
+    
+    distrib = MultivariateNormal(loc=parameter_mean, covariance_matrix=parameter_cov)
+    samples = distrib.sample((posterior_sample_num,))
+    
+    print(samples.shape)
+    print(samples.shape[0])
 
-    # plt.plot(ytrain_hat,d_hat,'or',label='d_i')
-    # plt.plot(ytrain_hat, y_mean, '*', linewidth=3, color="#408765", label="predictive mean")
-    # # plt.fill_between(np.squeeze(ytrain_hat), np.squeeze(y_mean - 2 * y_std), np.squeeze(y_mean + 2 * y_std), alpha=0.6, color='#86cfac', zorder=5)
-    # plt.legend(loc=4, fontsize=15, frameon=False)
+    ### Prediction with marginalization
+    xlist_array = []
+
+    for i in range(samples.shape[0]):
+
+        ### LV other parameters
+        x_t0 = 0
+        dt = 1e-3
+        T = 5
+
+        xlist = sin_model(x_t0,T,dt,[samples[i,0],samples[i,1],samples[i,2]])
+        
+        xlist_array.append(xlist)
+
+    prediction_mean = np.mean(np.asarray(xlist_array),axis=0)
+    prediction_std = np.std(np.asarray(xlist_array),axis=0)
+
+
+    plt.figure(figsize=(5, 4))
+    params = {
+                'axes.labelsize': 21,
+                'font.size': 21,
+                'legend.fontsize': 23,
+                'xtick.labelsize': 21,
+                'ytick.labelsize': 21,
+                'text.usetex': False,
+                'axes.linewidth': 2,
+                'xtick.major.width': 2,
+                'ytick.major.width': 2,
+                'xtick.major.size': 2,
+                'ytick.major.size': 2,
+            }
+    plt.rcParams.update(params)
+
+    plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
+
+    plt.plot(timedata,prediction_mean,'--',color='tab:orange',linewidth=3,label=r'$x_1$ prediction')
+    plt.fill_between(timedata,prediction_mean+prediction_std,prediction_mean-prediction_std,color='tab:orange',alpha=0.5)
+
+    plt.scatter(Xtrain,ytrain,marker='X',s=80,color='darkorange',edgecolors='k',label='training data '+r'($x_1$)',zorder=2)
+
+    plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
+
+
+    # plt.xlim([-1,20])
+    plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
     # plt.show()
+    plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
 
 
 
@@ -140,6 +190,8 @@ else:
     MSEloss = MSERddloss() ### 
     # MSEloss = nn.MSELoss() ### least square (when Rdd -> I)
     optimizer = optim.Adam(NNmodel.parameters(), lr=0.01)
+    # optimizer = optim.AdamW(NNmodel.parameters())
+    
     # dataset = TensorDataset(torch.from_numpy(ytrain_hat), torch.from_numpy(d_hat))
     # dataloader = DataLoader(dataset, batch_size=num_train, shuffle=False)
 
@@ -169,64 +221,61 @@ else:
     plt.legend()
     plt.show()
 
+    ####################### Temp visualization ########################
+    para_mean = []
+    for name, param in NNmodel.named_parameters():
+        para_mean.append(param[0].detach().numpy().item())
 
+    ### Set other parameters and rerun the model 
+    x_t0 = 0
+    dt = 1e-3
+    T = 5
 
+    # print(para_mean)
+    xlist = tanh_model(x_t0,T,dt,[para_mean[0],para_mean[1],para_mean[2]])
 
-####################### Temp visualization ########################
-para_mean = []
-for name, param in NNmodel.named_parameters():
-    para_mean.append(param[0].detach().numpy().item())
+    # num_T = int(T/dt)
+    # pre_x = x_t0
+    # xlist = [x_t0]
 
-### Set other parameters and rerun the model 
-x_t0 = 1.5
-dt = 1e-3
-T = 20
+    # for timestep in range(num_T):
+    #     pre_x_tensor = torch.tensor([[pre_x]]).to(torch.float64)
+    #     f_pred = NNmodel(pre_x_tensor)
+    #     next_x = dt*(f_pred[0][0].detach().numpy()) + pre_x
 
-# print(para_mean)
-xlist = tanh_model(x_t0,T,dt,[para_mean[0],para_mean[1],para_mean[2]])
+    #     xlist.append(next_x)
+    #     pre_x = next_x
 
-# num_T = int(T/dt)
-# pre_x = x_t0
-# xlist = [x_t0]
+    # xlist = np.array(xlist)
 
-# for timestep in range(num_T):
-#     pre_x_tensor = torch.tensor([[pre_x]]).to(torch.float64)
-#     f_pred = NNmodel(pre_x_tensor)
-#     next_x = dt*(f_pred[0][0].detach().numpy()) + pre_x
+    plt.figure(figsize=(17, 2))
+    params = {
+                'axes.labelsize': 21,
+                'font.size': 21,
+                'legend.fontsize': 23,
+                'xtick.labelsize': 21,
+                'ytick.labelsize': 21,
+                'text.usetex': False,
+                'axes.linewidth': 2,
+                'xtick.major.width': 2,
+                'ytick.major.width': 2,
+                'xtick.major.size': 2,
+                'ytick.major.size': 2,
+            }
+    plt.rcParams.update(params)
+    plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
+    plt.plot(timedata,xlist,'--',color='tab:orange',linewidth=3,label=r'$x$ prediction')
+    plt.scatter(Xtrain,ytrain,marker='X',s=80,color='darkorange',edgecolors='k',label='training data',zorder=2)
+    plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
+    # plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
 
-#     xlist.append(next_x)
-#     pre_x = next_x
-
-# xlist = np.array(xlist)
-
-plt.figure(figsize=(17, 2))
-params = {
-            'axes.labelsize': 21,
-            'font.size': 21,
-            'legend.fontsize': 23,
-            'xtick.labelsize': 21,
-            'ytick.labelsize': 21,
-            'text.usetex': False,
-            'axes.linewidth': 2,
-            'xtick.major.width': 2,
-            'ytick.major.width': 2,
-            'xtick.major.size': 2,
-            'ytick.major.size': 2,
-        }
-plt.rcParams.update(params)
-plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
-plt.plot(timedata,xlist,'--',color='tab:orange',linewidth=3,label=r'$x$ prediction')
-plt.scatter(Xtrain,ytrain,marker='X',s=80,color='darkorange',edgecolors='k',label='training data',zorder=2)
-plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
-# plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
-
-# if NoisePer == 0:
-#     plt.ylim([-0.8,8])
-# plt.xlim([-1,20])
-# plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
-plt.show()
-# plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
-# plt.savefig('result/figure/legend.png',bbox_inches='tight')
+    # if NoisePer == 0:
+    #     plt.ylim([-0.8,8])
+    # plt.xlim([-1,20])
+    # plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
+    plt.show()
+    # plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+    # plt.savefig('result/figure/legend.png',bbox_inches='tight')
 
 
 
@@ -242,69 +291,3 @@ plt.show()
 # np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))
 # np.save('result/parameter/Cov_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_cova)))
 
-# ### Prediction with marginalization
-# preylist_array = []
-# predlist_array = []
-
-# for i in range(PosteriorSample):
-
-#     mu1 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[0]),para_cova[0],1))
-#     mu2 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[1]),para_cova[1],1))
-
-#     ### LV other parameters
-#     x1_t0 = 1
-#     x2_t0 = 1
-
-#     dt = 1e-3
-#     T = 20
-
-#     preylist,predatorlist = LVmodel(x1_t0,x2_t0,T,dt,[mu1[0],-mu1[1],mu2[0],-mu2[1]])
-#     if np.max(preylist) > 20 or np.max(predatorlist) > 20:
-#         pass
-#     else:
-#         preylist_array.append(preylist)
-#         predlist_array.append(predatorlist)
-
-
-# preymean = np.mean(np.asarray(preylist_array),axis=0)
-# predmean = np.mean(np.asarray(predlist_array),axis=0)
-# preystd = np.std(np.asarray(preylist_array),axis=0)
-# predstd = np.std(np.asarray(predlist_array),axis=0)
-
-
-# plt.figure(figsize=(17, 2))
-# params = {
-#             'axes.labelsize': 21,
-#             'font.size': 21,
-#             'legend.fontsize': 23,
-#             'xtick.labelsize': 21,
-#             'ytick.labelsize': 21,
-#             'text.usetex': False,
-#             'axes.linewidth': 2,
-#             'xtick.major.width': 2,
-#             'ytick.major.width': 2,
-#             'xtick.major.size': 2,
-#             'ytick.major.size': 2,
-#         }
-# plt.rcParams.update(params)
-
-
-# plt.plot(timedata,x2,'-k',linewidth=3)
-
-# plt.plot(timedata,preymean,'--',color='royalblue',linewidth=3,label=r'$x_1$ prediction')
-# plt.plot(timedata,predmean,'--',color='tab:orange',linewidth=3,label=r'$x_2$ prediction')
-# plt.fill_between(timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5)
-# plt.fill_between(timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5)
-
-# plt.scatter(Xtrain,ytrain[:,0],marker='X',s=80,color='royalblue',edgecolors='k',label='training data '+r'($x_1$)',zorder=2)
-# plt.scatter(Xtrain,ytrain[:,1],marker='X',s=80,color='darkorange',edgecolors='k',label='training data '+r'($x_2$)',zorder=2)
-
-# plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
-# plt.plot(timedata,x1,'-k',linewidth=3,label='ground truth')
-
-# if NoisePer == 0:
-#     plt.ylim([-0.8,8])
-# # plt.xlim([-1,20])
-# # plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncols=3,frameon=False)
-# # plt.show()
-# # plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
