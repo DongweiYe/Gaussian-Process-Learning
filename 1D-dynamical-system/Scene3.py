@@ -170,16 +170,16 @@ if Bayesian == 1:
 
     plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
 
-    plt.plot(timedata,prediction_mean,'--',color='tab:orange',linewidth=3,label=r'$x_1$ prediction')
-    plt.fill_between(timedata,prediction_mean+prediction_std,prediction_mean-prediction_std,color='tab:orange',alpha=0.5)
+    plt.plot(timedata,prediction_mean,'--',color='crimson',linewidth=3,label=r'$x$ prediction')
+    plt.fill_between(timedata,prediction_mean+prediction_std,prediction_mean-prediction_std,color='crimson',alpha=0.4,label=r'$x$ uncertainty')
 
-    plt.scatter(Xtrain,ytrain,marker='X',s=80,color='darkorange',edgecolors='k',label='training data '+r'($x_1$)',zorder=2)
+    plt.scatter(Xtrain,ytrain,marker='X',s=80,color='crimson',edgecolors='k',label='training data '+r'($x_1$)',zorder=2)
 
     plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
 
 
     # plt.xlim([-1,20])
-    plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
+    # plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
     # plt.show()
     plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
 
