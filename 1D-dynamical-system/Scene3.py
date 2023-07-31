@@ -31,10 +31,12 @@ NoiseMean = 0            ### 0 mean for white noise
 NoisePer = 0         ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 PosteriorSample = 200    ### posterior sampling numbers
 Bayesian = 1            ### 0 -> MAP, 1-> Bayesian
+consistent = 0          ### Whether to use consistent structure (this is only for post-processing)
+                        ### for neural network, you need to comment out/in the corresponding one
 
 ### NN parameters
-n_epochs = 15000
-posterior_sample_num = 1000
+n_epochs = 150
+posterior_sample_num = 10
 ### Load data and add noise
 x = np.load('data/sin_x_ic.npy')
 timedata = np.load('data/time.npy')
@@ -115,9 +117,6 @@ if Bayesian == 1:
     for epoch in bar:
         loss = svi.step(torch.from_numpy(ytrain_hat).float(), torch.squeeze(torch.from_numpy(d_hat)).float())
         bar.set_postfix(loss=f'{loss / x.shape[0]:.3f}')
-
-    # print(torch.squeeze(NNmodel.fc1_weight).mean(),torch.squeeze(NNmodel.fc1_bias).mean(),torch.squeeze(NNmodel.fc2_weight).mean())
-    # print(torch.squeeze(NNmodel.fc1_weight).std(),torch.squeeze(NNmodel.fc1_bias).std(),torch.squeeze(NNmodel.fc2_weight).std())
     
     guide.requires_grad_(False)
 
@@ -130,23 +129,93 @@ if Bayesian == 1:
     
     distrib = MultivariateNormal(loc=parameter_mean, covariance_matrix=parameter_cov)
     samples = distrib.sample((posterior_sample_num,))
-    
     print(samples.shape)
-    print(samples.shape[0])
 
-    ### Prediction with marginalization
     xlist_array = []
 
-    for i in range(samples.shape[0]):
+    if consistent == 1:
+        for i in range(samples.shape[0]):
 
-        ### LV other parameters
-        x_t0 = 0
-        dt = 1e-3
-        T = 5
+            ### LV other parameters
+            x_t0 = 0
+            dt = 1e-3
+            T = 5
 
-        xlist = sin_model(x_t0,T,dt,[samples[i,0],samples[i,1],samples[i,2]])
-        
-        xlist_array.append(xlist)
+            xlist = sin_model(x_t0,T,dt,[samples[i,0],samples[i,1],samples[i,2]])
+            
+            xlist_array.append(xlist)
+    else:
+        ### Plot fi (prediction by NN)
+        print('Max x for training: ',np.max(ytrain_hat))
+        print('Min x for training: ',np.min(ytrain_hat))
+        expscale = 0.5*(np.max(ytrain_hat) - np.min(ytrain_hat))
+        fi_input = np.expand_dims(np.arange(np.min(ytrain_hat)-expscale,np.max(ytrain_hat)+expscale,0.01),axis=1)
+
+        f_predlist = []
+        for i in range(samples.shape[0]):
+            if i%100==0:
+                print('fi prediction; Sample:',i)
+            layerone = torch.mm(torch.from_numpy(fi_input).float(),samples[i,0:10].view(1,-1))+samples[i,10:20]
+
+            f_pred = torch.mm(torch.tanh(layerone),samples[i,20:30].view(-1, 1))
+            f_predlist.append(np.squeeze(f_pred.detach().numpy()))
+
+        f_prediction_mean = np.mean(np.asarray(f_predlist),axis=0)
+        f_prediction_std = np.std(np.asarray(f_predlist),axis=0)
+
+        plt.figure(figsize=(5, 4))
+        params = {
+                    'axes.labelsize': 21,
+                    'font.size': 21,
+                    'legend.fontsize': 23,
+                    'xtick.labelsize': 21,
+                    'ytick.labelsize': 21,
+                    'text.usetex': False,
+                    'axes.linewidth': 2,
+                    'xtick.major.width': 2,
+                    'ytick.major.width': 2,
+                    'xtick.major.size': 2,
+                    'ytick.major.size': 2,
+                }
+        plt.rcParams.update(params)
+
+        plt.plot(fi_input,2*np.sin(0.8*fi_input+0.5),'-k',linewidth=3,label='ground truth')
+
+        plt.plot(fi_input,f_prediction_mean,'--',color='crimson',linewidth=3,label=r'neuralODE prediction')
+        plt.fill_between(np.squeeze(fi_input),f_prediction_mean+f_prediction_std,f_prediction_mean-f_prediction_std,color='crimson',alpha=0.4,label=r'uncertainty')
+
+        plt.scatter(ytrain_hat,d_hat,marker='X',s=80,color='crimson',edgecolors='k',label='training data',zorder=2)
+
+        plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=4,frameon=False)
+        # plt.show()
+        plt.savefig('result/figure/fi_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+
+
+
+        ### dynamics prediction with posterior
+        for i in range(samples.shape[0]):
+            if i%100==0:
+                print('dynamics prediction; Sample:',i)
+            ### other model parameters
+            x_t0 = 0
+            dt = 1e-3
+            T = 5
+
+            num_T = int(T/dt)
+            pre_x = x_t0
+            xlist = [x_t0]
+
+            # xlist = sin_model(x_t0,T,dt,[samples[i,0],samples[i,1],samples[i,2]])
+            for timestep in range(num_T):
+                # pre_x_tensor = torch.tensor([[pre_x]]).to(torch.float64)
+                f_pred = torch.mm(samples[i,20:30].view(1, -1),torch.tanh(samples[i,0:10]*pre_x+samples[i,10:20]).view(-1, 1))
+                next_x = dt*(f_pred[0][0].detach().numpy()) + pre_x
+
+                xlist.append(next_x)
+                pre_x = next_x
+            
+            xlist_array.append(xlist)
+
 
     prediction_mean = np.mean(np.asarray(xlist_array),axis=0)
     prediction_std = np.std(np.asarray(xlist_array),axis=0)
@@ -168,18 +237,16 @@ if Bayesian == 1:
             }
     plt.rcParams.update(params)
 
+    
     plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
-
     plt.plot(timedata,prediction_mean,'--',color='crimson',linewidth=3,label=r'$x$ prediction')
     plt.fill_between(timedata,prediction_mean+prediction_std,prediction_mean-prediction_std,color='crimson',alpha=0.4,label=r'$x$ uncertainty')
 
-    plt.scatter(Xtrain,ytrain,marker='X',s=80,color='crimson',edgecolors='k',label='training data '+r'($x_1$)',zorder=2)
+    plt.scatter(Xtrain,ytrain,marker='X',s=80,color='crimson',edgecolors='k',label='training data',zorder=2)
 
     plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
-
-
-    # plt.xlim([-1,20])
-    # plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
+    
+    # plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=4,frameon=False)
     # plt.show()
     plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
 
@@ -187,7 +254,7 @@ if Bayesian == 1:
 
 else:
     NNmodel = neuralODE()
-    MSEloss = MSERddloss() ### 
+    MSEloss = MSERddloss()
     # MSEloss = nn.MSELoss() ### least square (when Rdd -> I)
     optimizer = optim.Adam(NNmodel.parameters(), lr=0.01)
     # optimizer = optim.AdamW(NNmodel.parameters())

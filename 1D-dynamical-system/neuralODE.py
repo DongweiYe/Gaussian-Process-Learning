@@ -14,13 +14,11 @@ class neuralODE(nn.Module):
         super(neuralODE, self).__init__()
         # 1d input -> 1 hidden layer with one node -> 1d output 
 
-        ### Example 1
-        # self.fc1 = nn.Linear(1, 1).double()  #hidden layer
-        # self.fc2 = nn.Linear(1, 1, bias=False).double()
-
-        ### Example 2 
+        ### Example: sin function (consistent)
         self.fc1 = nn.Linear(1, 1).double()  #hidden layer
         self.fc2 = nn.Linear(1, 1, bias=False).double()
+
+        ### Example: sin function (general)
         # self.fc1 = nn.Linear(1, 8).double()  #hidden layer
         # self.fc2 = nn.Linear(8, 8).double()  #hidden layer
         # self.fc3 = nn.Linear(8, 8).double()  #hidden layer
@@ -29,14 +27,12 @@ class neuralODE(nn.Module):
         
 
     def forward(self, x):
-        ### Example 1
-        # x = torch.tanh(self.fc1(x))
-        # x = self.fc2(x)
-        
-        
-        # ### Example 2 & 3
+
+        ### Example: sin function (consistent)
         x = torch.sin(self.fc1(x))
         x = self.fc2(x)
+
+        ### Example: sin function (general)
 
         return x
 
@@ -57,41 +53,35 @@ class BayesNeuralODE(PyroModule):
         # 1d input -> 1 hidden layer with one node -> 1d output 
 
         self.invRdd = inverseRdd
-        ### Example 0
-        self.linear1 = PyroModule[nn.Linear](1, 1)
-        self.linear1.weight = PyroSample(dist.Normal(0., prior_scale).expand([1, 1]).to_event(2))
-        self.linear1.bias = PyroSample(dist.Normal(0., prior_scale).expand([1]).to_event(1))
-
-        self.linear2 = PyroModule[nn.Linear](1, 1, bias=False)
-        self.linear2.weight = PyroSample(dist.Normal(0., prior_scale).expand([1, 1]).to_event(2))
-
-
-        ### Example 1 (consistent)
+        
+        ### Example: sin function (consistent)
         # self.linear1 = PyroModule[nn.Linear](1, 1)
         # self.linear1.weight = PyroSample(dist.Normal(0., prior_scale).expand([1, 1]).to_event(2))
         # self.linear1.bias = PyroSample(dist.Normal(0., prior_scale).expand([1]).to_event(1))
 
-        # self.linear2 = PyroModule[nn.Linear](1, 1)
+        # self.linear2 = PyroModule[nn.Linear](1, 1, bias=False)
         # self.linear2.weight = PyroSample(dist.Normal(0., prior_scale).expand([1, 1]).to_event(2))
-        # self.linear2.bias = PyroSample(dist.Normal(0., prior_scale).expand([1]).to_event(1))
 
-        # self.linear3 = PyroModule[nn.Linear](2, 1, bias=False)
-        # self.linear3.weight = PyroSample(dist.Normal(0., prior_scale).expand([1, 2]).to_event(2))
-        ### Example 1 (general)
+
+        ### Example: sin function (general)
+        self.linear1 = PyroModule[nn.Linear](1, 10)
+        self.linear1.weight = PyroSample(dist.Normal(0., prior_scale).expand([10, 1]).to_event(2))
+        self.linear1.bias = PyroSample(dist.Normal(0., prior_scale).expand([10]).to_event(1))
+
+        self.linear2 = PyroModule[nn.Linear](10, 1, bias=False)
+        self.linear2.weight = PyroSample(dist.Normal(0., prior_scale).expand([1, 10]).to_event(2))
         
-
         
 
     def forward(self, x,y=None):
-        ### Example 0
-        x = torch.sin(self.linear1(x))
+        
+        ### Example: sin function (consistent)
+        # x = torch.sin(self.linear1(x))
+        # x = self.linear2(x)
+
+        ### Example: sin function (general)
+        x = torch.tanh(self.linear1(x))
         x = self.linear2(x)
-
-        ### Example 1 (consistent)
-        # x1 = torch.tanh(self.linear1(x))
-        # x2 = torch.sin(self.linear2(x))
-
-        # x = self.linear3(torch.hstack((x1,x2)))
 
 
         with pyro.plate("data", x.shape[0]):
