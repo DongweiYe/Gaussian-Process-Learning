@@ -35,8 +35,8 @@ consistent = 0          ### Whether to use consistent structure (this is only fo
                         ### for neural network, you need to comment out/in the corresponding one
 
 ### NN parameters
-n_epochs = 150
-posterior_sample_num = 10
+n_epochs = 15000
+posterior_sample_num = 1000
 ### Load data and add noise
 x = np.load('data/sin_x_ic.npy')
 timedata = np.load('data/time.npy')
@@ -179,12 +179,13 @@ if Bayesian == 1:
                 }
         plt.rcParams.update(params)
 
+        
         plt.plot(fi_input,2*np.sin(0.8*fi_input+0.5),'-k',linewidth=3,label='ground truth')
-
-        plt.plot(fi_input,f_prediction_mean,'--',color='crimson',linewidth=3,label=r'neuralODE prediction')
+        plt.plot(fi_input,f_prediction_mean,'--',color='crimson',linewidth=3,label=r'NN prediction')
         plt.fill_between(np.squeeze(fi_input),f_prediction_mean+f_prediction_std,f_prediction_mean-f_prediction_std,color='crimson',alpha=0.4,label=r'uncertainty')
 
         plt.scatter(ytrain_hat,d_hat,marker='X',s=80,color='crimson',edgecolors='k',label='training data',zorder=2)
+        
 
         plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=4,frameon=False)
         # plt.show()
