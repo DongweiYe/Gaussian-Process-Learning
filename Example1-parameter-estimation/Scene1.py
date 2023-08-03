@@ -1,9 +1,13 @@
 import numpy as np
 import GPy
+import pickle
 import matplotlib.pyplot as plt
 from LotkaVolterra_model import *
 np.random.seed(0)
 
+# ### Save the random state to ensure one of the dataset is exact the same data for 5 IC cases
+# with open('state_noise.obj', 'wb') as f:
+#     pickle.dump(np.random.get_state(), f)
 
 ######################################
 ############## Scenario 1 ############
@@ -18,13 +22,12 @@ NoiseMean = 0            ### 0 mean for white noise
 NoisePer = 0.1           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 PosteriorSample = 1000    ### posterior sampling numbers
-IC_test = 0
+IC_test = 0               ### redundant function
 
 ### Load data and add noise
-x1 = np.load('data/x1.npy')
-x2 = np.load('data/x2.npy')
+x1 = np.load('data/x1_0.npy')
+x2 = np.load('data/x2_0.npy')
 timedata = np.load('data/time.npy')
-
 
 NoiseSTD1 = NoisePer*np.mean(x1)
 NoiseSTD2 = NoisePer*np.mean(x2)
@@ -34,6 +37,11 @@ preddata = x2 + np.random.normal(NoiseMean,NoiseSTD2,x2.shape[0])
 
 num_data = preddata.shape[0] - 1 ### 0 -> K, using [0,K-1] for int
 num_train = int((num_data*TrainRatio)*DataSparsity) 
+
+# ### Save the random state to ensure one of the dataset is exact the same data for 5 IC cases
+# with open('state_time.obj', 'wb') as f:
+#     pickle.dump(np.random.get_state(), f)
+
 samplelist = np.random.choice(np.arange(0,int(num_data*TrainRatio)),num_train,replace=False)
 
 
@@ -42,10 +50,12 @@ Xtrain = np.expand_dims(timedata[samplelist],axis=1)
 ytrain = np.hstack((np.expand_dims(preydata[samplelist],axis=1),np.expand_dims(preddata[samplelist],axis=1)))
 ytrain_backup = np.hstack((np.expand_dims(x1[samplelist],axis=1),np.expand_dims(x2[samplelist],axis=1)))
 
-# plt.plot(Xtrain,ytrain[:,0],'*',label='x1 dynamics')
-# plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
-# plt.legend()
-# plt.show()
+plt.plot(Xtrain,ytrain[:,0],'*',label='x1 dynamics')
+plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
+plt.plot(timedata,x1,'-k',label='x1')
+plt.plot(timedata,x2,'-k',label='x2')
+plt.legend()
+plt.show()
 
 ### Build a GP to infer the hyperparameters for each dynamic equation 
 ### and proper G_i data from regression
@@ -61,6 +71,12 @@ for i in range(0,NumDyn):
     xtGP.optimize_restarts(num_restarts=2,verbose=False)
     
     ypred,yvar = xtGP.predict(Xtrain)
+
+    plt.plot(Xtrain,ypred,'*',label='prediction')
+    plt.plot(Xtrain,ytrain[:,i:(i+1)],'*',label='GT')
+    plt.legend()
+    plt.show()
+    
     ytrain_hat.append(ypred)
     
     kernellist.append(xtkernel)
@@ -128,8 +144,8 @@ for i in range(PosteriorSample):
     mu2 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[1]),para_cova[1],1))
 
     ### LV other parameters
-    x1_t0 = 2.5
-    x2_t0 = 3
+    x1_t0 = 1
+    x2_t0 = 1
 
     dt = 1e-3
     T = 20
@@ -222,6 +238,6 @@ else:
         plt.ylim([-0.8,8])
     # plt.xlim([-1,20])
     plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=4,frameon=False)
-    # plt.show()
-    plt.savefig('result/figure/1N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+    plt.show()
+    # plt.savefig('result/figure/1N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
     
