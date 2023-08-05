@@ -5,9 +5,6 @@ import matplotlib.pyplot as plt
 from LotkaVolterra_model import *
 np.random.seed(0)
 
-# ### Save the random state to ensure one of the dataset is exact the same data for 5 IC cases
-# with open('state_noise.obj', 'wb') as f:
-#     pickle.dump(np.random.get_state(), f)
 
 ######################################
 ############## Scenario 1 ############
@@ -17,7 +14,7 @@ np.random.seed(0)
 
 ### Parameters
 TrainRatio = 0.4         ### Train/Test data split ratio
-DataSparsity = 0.0025      ### Take 25% of as the total data we have
+DataSparsity = 0.025      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
 NoisePer = 0.1           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
@@ -25,12 +22,15 @@ PosteriorSample = 1000    ### posterior sampling numbers
 IC_test = 0               ### redundant function
 
 ### Load data and add noise
-x1 = np.load('data/x1_0.npy')
-x2 = np.load('data/x2_0.npy')
+x1 = np.load('data/x1.npy')
+x2 = np.load('data/x2.npy')
 timedata = np.load('data/time.npy')
 
 NoiseSTD1 = NoisePer*np.mean(x1)
 NoiseSTD2 = NoisePer*np.mean(x2)
+
+# with open('state_noise.obj', 'wb') as f:
+#     pickle.dump(np.random.get_state(), f)
 
 preydata = x1 + np.random.normal(NoiseMean,NoiseSTD1,x1.shape[0])
 preddata = x2 + np.random.normal(NoiseMean,NoiseSTD2,x2.shape[0])
@@ -38,7 +38,6 @@ preddata = x2 + np.random.normal(NoiseMean,NoiseSTD2,x2.shape[0])
 num_data = preddata.shape[0] - 1 ### 0 -> K, using [0,K-1] for int
 num_train = int((num_data*TrainRatio)*DataSparsity) 
 
-# ### Save the random state to ensure one of the dataset is exact the same data for 5 IC cases
 # with open('state_time.obj', 'wb') as f:
 #     pickle.dump(np.random.get_state(), f)
 
@@ -72,10 +71,10 @@ for i in range(0,NumDyn):
     
     ypred,yvar = xtGP.predict(Xtrain)
 
-    plt.plot(Xtrain,ypred,'*',label='prediction')
-    plt.plot(Xtrain,ytrain[:,i:(i+1)],'*',label='GT')
-    plt.legend()
-    plt.show()
+    # plt.plot(Xtrain,ypred,'*',label='prediction')
+    # plt.plot(Xtrain,ytrain[:,i:(i+1)],'*',label='GT')
+    # plt.legend()
+    # plt.show()
     
     ytrain_hat.append(ypred)
     
@@ -144,15 +143,24 @@ for i in range(PosteriorSample):
     mu2 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[1]),para_cova[1],1))
 
     ### LV other parameters
-    x1_t0 = 1
-    x2_t0 = 1
+    if IC_test == 0:
+        x1_t0 = 1
+        x2_t0 = 1
+        T = 20
+    else:
+        x1_t0 = 2
+        x2_t0 = 1.2
+        T = 10
 
     dt = 1e-3
-    T = 20
 
     preylist,predatorlist = LVmodel(x1_t0,x2_t0,T,dt,[mu1[0],-mu1[1],mu2[0],-mu2[1]])
-    if np.max(preylist) > 20 or np.max(predatorlist) > 20:
-        pass
+    if IC_test == 0:
+        if np.max(preylist) > 20 or np.max(predatorlist) > 20:
+            pass
+        else:
+            preylist_array.append(preylist)
+            predlist_array.append(predatorlist)
     else:
         preylist_array.append(preylist)
         predlist_array.append(predatorlist)
@@ -163,13 +171,10 @@ if IC_test == 1:
     preylist_IC,predatorlist_IC = LVmodel(x1_t0,x2_t0,T,dt,[1.5,1,1,3])
 
 
-
 preymean = np.mean(np.asarray(preylist_array),axis=0)
 predmean = np.mean(np.asarray(predlist_array),axis=0)
 preystd = np.std(np.asarray(preylist_array),axis=0)
 predstd = np.std(np.asarray(predlist_array),axis=0)
-
-
 
 
 if IC_test == 1:
@@ -195,11 +200,11 @@ if IC_test == 1:
     plt.plot(new_timedata,preymean,'--',color='royalblue',linewidth=3,label=r'$x_1$ prediction')
     plt.plot(new_timedata,predmean,'--',color='tab:orange',linewidth=3,label=r'$x_2$ prediction')
 
-    plt.fill_between(new_timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5)
-    plt.fill_between(new_timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5)
+    plt.fill_between(new_timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5,label=r'$x_1$ uncertainty')
+    plt.fill_between(new_timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5,label=r'$x_2$ uncertainty')
     plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
-    # plt.show()
-    plt.savefig('result/figure/ICs/'+str(x1_t0)+'&'+str(x2_t0)+'111.png',bbox_inches='tight')
+    plt.show()
+    # plt.savefig('result/figure/ICs/'+str(x1_t0)+'&'+str(x2_t0)+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
 
 else:
     plt.figure(figsize=(17, 2))

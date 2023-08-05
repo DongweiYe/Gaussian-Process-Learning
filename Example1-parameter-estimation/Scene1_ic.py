@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 from LotkaVolterra_model import *
 # np.random.seed(0)
 
-
-
 ######################################
 ############## Scenario 1 ############
 ######################################
@@ -15,12 +13,12 @@ from LotkaVolterra_model import *
 
 ### Parameters
 TrainRatio = 0.4         ### Train/Test data split ratio
-DataSparsity = 0.0025      ### Take 25% of as the total data we have
+DataSparsity = 0.025      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
 NoisePer = 0.1           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 PosteriorSample = 1000    ### posterior sampling numbers
-num_ic = 1
+num_ic = 5
 
 ### Load data and add noise
 x1_list = []
@@ -55,7 +53,7 @@ for i in range(num_ic):
     NoiseSTD1_list.append(NoisePer*np.mean(x1_list[i]))
     NoiseSTD2_list.append(NoisePer*np.mean(x2_list[i]))
 
-    print(np.random.normal(NoiseMean,NoiseSTD1_list[i],x1_list[i].shape[0]))
+    # print(np.random.normal(NoiseMean,NoiseSTD1_list[i],x1_list[i].shape[0]))
 
     preydata_list.append(x1_list[i] + np.random.normal(NoiseMean,NoiseSTD1_list[i],x1_list[i].shape[0]))
     preddata_list.append(x2_list[i] + np.random.normal(NoiseMean,NoiseSTD2_list[i],x2_list[i].shape[0]))
@@ -122,6 +120,7 @@ for i in range(0,NumDyn):
     Rdu_list = []
     invKuu_list = []
     G_list = []
+    di_list = []
     for j in range(num_ic):
         print('     Prepare IC data: ',j)
 
@@ -142,6 +141,9 @@ for i in range(0,NumDyn):
         Kdu_list.append(kernel_list[i][j].dK_dX(Xtrain,Xtrain,0))                                                  ### not invertable
         Kud_list.append(Kdu_list[j].T)                                                                                 ### not invertable
         invKuu_list.append(np.linalg.inv(Kuu_list[j]))                                                  
+
+        ### Compute and plot di
+        di_list.append(Kdu_list[j]@invKuu_list[j]@ytrain_list[j][:,i:(i+1)])
 
         ### If we could only assume that Kuu is invertalbe, then
         Rdd_list.append(np.linalg.inv(Kdd_list[j]-Kdu_list[j]@invKuu_list[j]@Kud_list[j]))
@@ -165,6 +167,13 @@ for i in range(0,NumDyn):
 
     para_mean.append(mu_mean)
     para_cova.append(mu_covariance)
+
+    # for j in range(num_ic):
+    #     plt.plot(ytrain_list[j][:,i:(i+1)],di_list[j],'*',label='ic '+str(j))
+    # plt.legend()
+    # plt.xlabel('x')
+    # plt.ylabel('d')
+    # plt.show()
 
 print('Parameter mean:', para_mean)
 print('Parameter covariance: ',para_cova)
