@@ -19,7 +19,6 @@ DataSparsity = 0.025      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
 NoisePer = 0           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
-PosteriorSample = 1000    ### posterior sampling numbers
 IC_test = 0               ### redundant function
 
 ### Load data and add noise
@@ -95,7 +94,7 @@ for i in range(0,NumDyn):
     ### Construct the covariance matrix of equation (5)
     if NoisePer == 0:
         Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*1e-4
-        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-4
+        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1
     else:
         Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                    ### invertable
         Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*GPnoise ### Additional noise to make sure invertable
@@ -121,11 +120,11 @@ for i in range(0,NumDyn):
                     np.multiply(ytrain_hat[:,0:1],ytrain_hat[:,1:2]))) 
 
     sample_initial = np.zeros((1,6))
-    assumption_variance = 0.1        ### Assumption variance for jump distribution can not be too small as this will define the searching area
-    timestep = 5000                   
+    assumption_variance = 0.01        ### Assumption variance for jump distribution can not be too small as this will define the searching area
+    timestep = 50000                   
 
-    # posterior_samplelist = Metropolis_Hasting(timestep,sample_initial,assumption_variance,[Gdata,d_hat,invRdd])
-    posterior_samplelist = Metropolis_Hasting(timestep,sample_initial,assumption_variance,[Gdata,d_hat,np.identity(Rdd.shape[0])],False)
+    posterior_samplelist = Metropolis_Hasting(timestep,sample_initial,assumption_variance,[Gdata,d_hat,invRdd])
+    # posterior_samplelist = Metropolis_Hasting(timestep,sample_initial,assumption_variance,[Gdata,d_hat,np.identity(Rdd.shape[0])])
     # print(posterior_samplelist.shape)
     # para_mean.append(mu_mean)
     # para_cova.append(mu_covariance)

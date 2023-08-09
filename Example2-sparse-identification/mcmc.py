@@ -4,21 +4,17 @@ def prior_function(input_vector,mean_vector,variance_vector):
 
     return 1/(np.prod(2*variance_vector))*np.exp(-np.sum(np.abs(input_vector-mean_vector)/variance_vector))
 
-def likelihood(input_vector,mean_vector,covariance_matrix,parameter,L1regu=False):
+def likelihood(input_vector,mean_vector,covariance_matrix,parameter):
     num_para = parameter.shape[1]
 
     determinant = np.linalg.det(covariance_matrix)
     # print('determinant:',determinant)
     # print((input_vector-mean_vector))
-    if L1regu == False:
-        return 1/np.sqrt((2*np.pi)**num_para*determinant)*\
+    
+    return 1/np.sqrt((2*np.pi)**num_para*determinant)*\
                                 np.exp(-0.5*(input_vector-mean_vector).T@np.linalg.inv(covariance_matrix)@(input_vector-mean_vector))
-    else:
-        return 1/np.sqrt((2*np.pi)**num_para*determinant)*\
-                                np.exp(-0.5*(input_vector-mean_vector).T@np.linalg.inv(covariance_matrix)@(input_vector-mean_vector)) + 2*L1regu*np.sum(np.abs(parameter))
 
-
-def Metropolis_Hasting(timestep,initial_sample,assumption_variance,databinding,L1regu):
+def Metropolis_Hasting(timestep,initial_sample,assumption_variance,databinding):
 
     ### Prior info
     prior_mean = 0
@@ -53,8 +49,8 @@ def Metropolis_Hasting(timestep,initial_sample,assumption_variance,databinding,L
         Gtheta_lower = Gdata@post_sample_current.T
 
         ### Component to compute multivariate Gaussian function for likelihood 
-        likelihood_upper = likelihood(Gtheta_upper,d_hat,covariance,theta_new,L1regu=L1regu)
-        likelihood_lower = likelihood(Gtheta_lower,d_hat,covariance,post_sample_current,L1regu=L1regu)
+        likelihood_upper = likelihood(Gtheta_upper,d_hat,covariance,theta_new)
+        likelihood_lower = likelihood(Gtheta_lower,d_hat,covariance,post_sample_current)
 
         # print(prior_function_upper,prior_function_lower)
         # print(likelihood_upper,likelihood_lower)
@@ -70,8 +66,9 @@ def Metropolis_Hasting(timestep,initial_sample,assumption_variance,databinding,L
             post_sample_list.append(post_sample_current)
             # print('Accept ratio: ',accept_ratio,'; Xnew: ',theta_new,'; Accept')
         else:
-            pass
             # print('Accept ratio: ',accept_ratio,'; Xnew: ',theta_new,'; Reject')
+            pass
+            
     
     
     # ### Truncate 1/4 of burning-in period sample
