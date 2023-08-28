@@ -4,6 +4,7 @@ import pickle
 import matplotlib.pyplot as plt
 from LotkaVolterra_model import *
 from mcmc import *
+from visualization import *
 np.random.seed(0)
 
 
@@ -19,7 +20,7 @@ DataSparsity = 0.025      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
 NoisePer = 0           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
-assumption_variance = np.array([0.005,0.005])  ### variance for MCMC jump distribution
+assumption_variance = np.array([5e-4,5e-4])  ### variance for MCMC jump distribution
 timestep = np.array([50000,50000]) ### timestep for mcmc
 IC_test = 0               ### redundant function
 
@@ -129,9 +130,9 @@ for i in range(0,NumDyn):
     # print(posterior_samplelist.shape)
     # para_mean.append(mu_mean)
     # para_cova.append(mu_covariance)
-
     print('Parameter mean:', np.mean(posterior_samplelist,axis=0))
     print('Parameter std:', np.std(posterior_samplelist,axis=0))
+    sindy_dist(posterior_samplelist,str(i))
     # print('Parameter covariance: ',para_cova)
 
 # np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))

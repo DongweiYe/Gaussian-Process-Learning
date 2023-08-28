@@ -41,7 +41,7 @@ def Metropolis_Hasting(timestep,initial_sample,assumption_variance,databinding,p
 
     ### Prior info
     prior_mean = 0
-    prior_variance = 4
+    prior_variance = 1
 
     ### Release databinding
     Gdata = databinding[0]
@@ -102,7 +102,7 @@ def Metropolis_Hasting(timestep,initial_sample,assumption_variance,databinding,p
     
     
     # ### Truncate 1/4 of burning-in period sample
-    truncate_num = int(len(post_sample_list)/2)
+    truncate_num = int(len(post_sample_list)/4)
     print('Number of posterior samples: ',len(post_sample_list[truncate_num:]))
     print('The acceptance rate is: %', len(post_sample_list)/timestep*100)
     return np.squeeze(np.asarray(post_sample_list[truncate_num:]))
