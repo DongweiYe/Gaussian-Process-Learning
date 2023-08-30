@@ -2,9 +2,13 @@ import numpy as np
 import GPy
 import pickle
 import matplotlib.pyplot as plt
+
+import pymc as pm
+
 from LotkaVolterra_model import *
 from mcmc import *
 from visualization import *
+
 np.random.seed(0)
 
 
@@ -18,7 +22,7 @@ np.random.seed(0)
 TrainRatio = 0.4         ### Train/Test data split ratio
 DataSparsity = 0.025      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0.1           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 assumption_variance = np.array([5e-4,5e-4])  ### variance for MCMC jump distribution
 timestep = np.array([50000,50000]) ### timestep for mcmc
@@ -45,12 +49,12 @@ Xtrain = np.expand_dims(timedata[samplelist],axis=1)
 ytrain = np.hstack((np.expand_dims(preydata[samplelist],axis=1),np.expand_dims(preddata[samplelist],axis=1)))
 ytrain_backup = np.hstack((np.expand_dims(x1[samplelist],axis=1),np.expand_dims(x2[samplelist],axis=1)))
 
-plt.plot(Xtrain,ytrain[:,0],'*',label='x1 dynamics')
-plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
-plt.plot(timedata,x1,'-k',label='x1')
-plt.plot(timedata,x2,'-k',label='x2')
-plt.legend()
-plt.show()
+# plt.plot(Xtrain,ytrain[:,0],'*',label='x1 dynamics')
+# plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
+# plt.plot(timedata,x1,'-k',label='x1')
+# plt.plot(timedata,x2,'-k',label='x2')
+# plt.legend()
+# plt.show()
 
 ### Build a GP to infer the hyperparameters for each dynamic equation 
 ### and proper G_i data from regression
@@ -100,7 +104,7 @@ for i in range(0,NumDyn):
         Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-1
     else:
         Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                    ### invertable
-        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*GPnoise ### Additional noise to make sure invertable
+        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e4 ### Additional noise to make sure invertable
 
     Kdu = kernellist[i].dK_dX(Xtrain,Xtrain,0)                                                  ### not invertable
     Kud = Kdu.T                                                                                 ### not invertable
@@ -122,17 +126,58 @@ for i in range(0,NumDyn):
                     np.multiply(ytrain_hat[:,1:2],ytrain_hat[:,1:2]),  \
                     np.multiply(ytrain_hat[:,0:1],ytrain_hat[:,1:2]))) 
 
-    sample_initial = np.zeros((1,6))
+    # sample_initial = np.zeros((1,6))
     # timestep = 50000                   
 
-    posterior_samplelist = Metropolis_Hasting(timestep[i],sample_initial,assumption_variance[i],[Gdata,d_hat,invRdd],'spike-slab')
+    basic_model = pm.Model()
+
+    with basic_model:
+        # Priors for theta
+        theta = pm.Laplace("theta", mu=0, b=1,shape=(6,1))
+
+        # # Expected value of outcome
+        # mu = alpha + beta[0] * X1 + beta[1] * X2
+        mu = Gdata@theta
+        Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=invRdd, observed=d_hat)
+        trace = pm.sample(1000, return_inferencedata=False)
+        print(np.mean(np.squeeze(trace.get_values('theta', combine=True)),axis=0))
+        print(np.std(np.squeeze(trace.get_values('theta', combine=True)),axis=0))
+        # # Likelihood (sampling distribution) of observations
+        # Y_obs = pm.Normal("Y_obs", mu=mu, sigma=sigma, observed=Y)
+
+
+
+    # def basic_model(Gi,covariance):
+    #     Gi = torch.from_numpy(Gi).float()
+    #     covariance = torch.from_numpy(covariance).float()
+    #     for theta_num in range(6):
+    #         if theta_num == 0:
+    #             theta = pyro.sample("theta_"+str(theta_num),dist.Laplace(torch.tensor([0.0]), torch.tensor([1.0])))
+    #         else:
+    #             theta = torch.cat((theta,pyro.sample("theta_"+str(theta_num),dist.Laplace(torch.tensor([0.0]), torch.tensor([1.0])))))
+        
+    #     mean = torch.matmul(Gi,theta)
+        
+    #     y = pyro.sample('y', dist.MultivariateNormal(mean, covariance), obs=torch.from_numpy(d_hat).float())
+    #     # print(y.shape)
+    #     return y
+
+    # nuts_kernel = NUTS(basic_model, jit_compile=False)
+    # mcmc = MCMC(nuts_kernel, num_samples=1000, warmup_steps=100)
+
+    # mcmc.run(Gdata, invRdd)
+    # for theta_num in range(6):
+    #     print(mcmc.get_samples()['theta_'+str(theta_num)].mean())
+
+    # posterior_samplelist = PyroMCMC(timestep[i],sample_initial,assumption_variance[i],[Gdata,d_hat,invRdd],'laplace') 
     # posterior_samplelist = Metropolis_Hasting(timestep,sample_initial,assumption_variance,[Gdata,d_hat,np.identity(Rdd.shape[0])])
     # print(posterior_samplelist.shape)
     # para_mean.append(mu_mean)
     # para_cova.append(mu_covariance)
-    print('Parameter mean:', np.mean(posterior_samplelist,axis=0))
-    print('Parameter std:', np.std(posterior_samplelist,axis=0))
-    sindy_dist(posterior_samplelist,str(i))
+    # print('Parameter mean:', np.mean(posterior_samplelist,axis=0))
+    # print('Parameter std:', np.std(posterior_samplelist,axis=0))
+    # sindy_dist(posterior_samplelist,str(i))
+    
     # print('Parameter covariance: ',para_cova)
 
 # np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))
