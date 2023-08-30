@@ -19,7 +19,7 @@ def sindy_dist(samples,name):
     for term, ax in enumerate(axes):
         sns.kdeplot(samples[:,term], ax=ax,bw_adjust=3, color = 'tab:blue',linewidths=1.5 ,fill=True)
         ax.set_ylabel(y_tick_labels[term],fontsize=15)
-        ax.set_xlim(-2,2)
+        ax.set_xlim(-3,3)
         ax.get_yaxis().set_ticks([])
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)

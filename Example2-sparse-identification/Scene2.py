@@ -22,10 +22,8 @@ np.random.seed(0)
 TrainRatio = 0.4         ### Train/Test data split ratio
 DataSparsity = 0.025      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.1           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
-assumption_variance = np.array([5e-4,5e-4])  ### variance for MCMC jump distribution
-timestep = np.array([50000,50000]) ### timestep for mcmc
 IC_test = 0               ### redundant function
 
 ### Load data and add noise
@@ -101,10 +99,10 @@ for i in range(0,NumDyn):
     ### Construct the covariance matrix of equation (5)
     if NoisePer == 0:
         Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*1e-4
-        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-1
+        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-3
     else:
         Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                    ### invertable
-        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e4 ### Additional noise to make sure invertable
+        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e4     ### Additional noise to make sure invertable
 
     Kdu = kernellist[i].dK_dX(Xtrain,Xtrain,0)                                                  ### not invertable
     Kud = Kdu.T                                                                                 ### not invertable
@@ -140,43 +138,21 @@ for i in range(0,NumDyn):
         mu = Gdata@theta
         Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=invRdd, observed=d_hat)
         trace = pm.sample(1000, return_inferencedata=False)
-        print(np.mean(np.squeeze(trace.get_values('theta', combine=True)),axis=0))
-        print(np.std(np.squeeze(trace.get_values('theta', combine=True)),axis=0))
-        # # Likelihood (sampling distribution) of observations
-        # Y_obs = pm.Normal("Y_obs", mu=mu, sigma=sigma, observed=Y)
-
-
-
-    # def basic_model(Gi,covariance):
-    #     Gi = torch.from_numpy(Gi).float()
-    #     covariance = torch.from_numpy(covariance).float()
-    #     for theta_num in range(6):
-    #         if theta_num == 0:
-    #             theta = pyro.sample("theta_"+str(theta_num),dist.Laplace(torch.tensor([0.0]), torch.tensor([1.0])))
-    #         else:
-    #             theta = torch.cat((theta,pyro.sample("theta_"+str(theta_num),dist.Laplace(torch.tensor([0.0]), torch.tensor([1.0])))))
+    
+    posterior_samples = np.squeeze(trace.get_values('theta', combine=True))
+    print(posterior_samples.shape)
+    print(np.mean(posterior_samples,axis=0))
+    print(np.std(posterior_samples,axis=0))
         
-    #     mean = torch.matmul(Gi,theta)
-        
-    #     y = pyro.sample('y', dist.MultivariateNormal(mean, covariance), obs=torch.from_numpy(d_hat).float())
-    #     # print(y.shape)
-    #     return y
 
-    # nuts_kernel = NUTS(basic_model, jit_compile=False)
-    # mcmc = MCMC(nuts_kernel, num_samples=1000, warmup_steps=100)
-
-    # mcmc.run(Gdata, invRdd)
-    # for theta_num in range(6):
-    #     print(mcmc.get_samples()['theta_'+str(theta_num)].mean())
-
-    # posterior_samplelist = PyroMCMC(timestep[i],sample_initial,assumption_variance[i],[Gdata,d_hat,invRdd],'laplace') 
+    # posterior_samplelist = Metropolis_Hasting(timestep[i],sample_initial,assumption_variance[i],[Gdata,d_hat,invRdd],'laplace') 
     # posterior_samplelist = Metropolis_Hasting(timestep,sample_initial,assumption_variance,[Gdata,d_hat,np.identity(Rdd.shape[0])])
     # print(posterior_samplelist.shape)
     # para_mean.append(mu_mean)
     # para_cova.append(mu_covariance)
     # print('Parameter mean:', np.mean(posterior_samplelist,axis=0))
     # print('Parameter std:', np.std(posterior_samplelist,axis=0))
-    # sindy_dist(posterior_samplelist,str(i))
+    sindy_dist(posterior_samples,str(i))
     
     # print('Parameter covariance: ',para_cova)
 
