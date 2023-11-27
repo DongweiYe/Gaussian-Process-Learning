@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+plt.rcParams["mathtext.fontset"] = 'cm'
 def sindy_dist(samples,name):
     
     fig, axes = plt.subplots(nrows=6, ncols=1, figsize=(3, 8), sharex=True)
@@ -14,7 +14,7 @@ def sindy_dist(samples,name):
     #     }
     # plt.rcParams.update(params)
     
-    y_tick_labels = [r'$1$', r'$x_1$', r'$x_2$', r'$x_1^2$', r'$x_2^2$', r'$x_1 x_2$']
+    y_tick_labels = [r'$1$',r'$x_1$', r'$x_2$', r'$x_1^2$', r'$x_2^2$', r'$x_1 x_2$']
 
     for term, ax in enumerate(axes):
         sns.kdeplot(samples[:,term], ax=ax,bw_adjust=3, color = 'tab:blue',linewidths=1.5 ,fill=True)
