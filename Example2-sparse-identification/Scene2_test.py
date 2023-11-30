@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import pymc as pm
 from scipy.optimize import minimize
 from sklearn.linear_model import Lasso,Ridge
+import statsmodels.api as sm
 import pytensor as pyte
 
 from LotkaVolterra_model import *
@@ -25,7 +26,7 @@ np.set_printoptions(precision=4)
 TrainRatio = 0.4         ### Train/Test data split ratio
 DataSparsity = 0.025      ### Take 25% of as the total data; DataSparsity =0.25 (100% data),DataSparsity=0.025 (10% data),etc
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.2          ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0          ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 IC_test = 0               ### redundant function
 prior_name = 'laplace'   ### laplace or spike-slab
@@ -55,31 +56,31 @@ Xtrain = np.expand_dims(timedata[samplelist],axis=1)
 ytrain = np.hstack((np.expand_dims(preydata[samplelist],axis=1),np.expand_dims(preddata[samplelist],axis=1)))
 ytrain_backup = np.hstack((np.expand_dims(x1[samplelist],axis=1),np.expand_dims(x2[samplelist],axis=1)))
 
-plt.figure(figsize=(7, 5))
-params = {
-        'axes.labelsize': 21,
-        'font.size': 21,
-        'legend.fontsize': 23,
-        'xtick.labelsize': 21,
-        'ytick.labelsize': 21,
-        'text.usetex': False,
-        'axes.linewidth': 1,
-        'xtick.major.width': 1,
-        'ytick.major.width': 1,
-        'xtick.major.size': 1,
-        'ytick.major.size': 1,
-    }
-plt.rcParams.update(params)
-plt.plot(timedata[:8000],x1[:8000],'-k',linewidth=1.5,label='dynamics')
-plt.plot(Xtrain,ytrain[:,0],'*',color='tab:red',markersize=8,label='data')
-# plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
+# plt.figure(figsize=(7, 5))
+# params = {
+#         'axes.labelsize': 21,
+#         'font.size': 21,
+#         'legend.fontsize': 23,
+#         'xtick.labelsize': 21,
+#         'ytick.labelsize': 21,
+#         'text.usetex': False,
+#         'axes.linewidth': 1,
+#         'xtick.major.width': 1,
+#         'ytick.major.width': 1,
+#         'xtick.major.size': 1,
+#         'ytick.major.size': 1,
+#     }
+# plt.rcParams.update(params)
+# plt.plot(timedata[:8000],x1[:8000],'-k',linewidth=1.5,label='dynamics')
+# plt.plot(Xtrain,ytrain[:,0],'*',color='tab:red',markersize=8,label='data')
+# # plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
 
-# plt.plot(timedata,x2,'-k',label='x2')
-plt.xlabel(r'$t$')
-plt.ylabel(r'$x_i(t)$')
-plt.legend(fontsize=12)
-# plt.show()
-plt.savefig('data.png',bbox_inches='tight')
+# # plt.plot(timedata,x2,'-k',label='x2')
+# plt.xlabel(r'$t$')
+# plt.ylabel(r'$x_i(t)$')
+# plt.legend(fontsize=12)
+# # plt.show()
+# plt.savefig('data.png',bbox_inches='tight')
 
 ### Build a GP to infer the hyperparameters for each dynamic equation 
 ### and proper G_i data from regression
@@ -97,15 +98,15 @@ for i in range(0,NumDyn):
     
     ypred,yvar = xtGP.predict(Xtrain)
 
-    if i == 0:
-        plt.plot(timedata[:8000],x1[:8000],'-',color='black',label='GT')
-    else:
-        plt.plot(timedata[:8000],x2[:8000],'-',color='black',label='GT')
-    plt.plot(Xtrain,ypred,'o',color='tab:red',label='prediction')
-    plt.plot(Xtrain,ytrain[:,i:(i+1)],'*',label='data')
-    plt.legend()
-    plt.savefig('GP_'+str(i)+'.png')
-    plt.clf()
+    # if i == 0:
+    #     plt.plot(timedata[:8000],x1[:8000],'-',color='black',label='GT')
+    # else:
+    #     plt.plot(timedata[:8000],x2[:8000],'-',color='black',label='GT')
+    # plt.plot(Xtrain,ypred,'o',color='tab:red',label='prediction')
+    # plt.plot(Xtrain,ytrain[:,i:(i+1)],'*',label='data')
+    # plt.legend()
+    # plt.savefig('GP_'+str(i)+'.png')
+    # plt.clf()
     
     ytrain_hat.append(ypred)
 
@@ -176,9 +177,17 @@ for i in range(0,NumDyn):
         # print('Regu parameter:',regressor.coef_)
         return regressor.coef_
 
-    threshold = 0.5
-    theta_test = ridge_reg(Gdata,d_hat,1)
+    def regulized_GLS(g_data,d_data,cov_matrix):
+        gls_model = sm.GLS(d_data, g_data, sigma=cov_matrix)
+        gls_results = gls_model.fit_regularized(method='elastic_net',alpha=1,L1_wt=0)
+        # gls_results = gls_model.fit()
+        return gls_results.params
+
+    threshold = 0.2
+    # theta_test = ridge_reg(Gdata,d_hat,1)
+    theta_test = regulized_GLS(Gdata,d_hat,invRdd).reshape(1,-1)
     print('L2 esimation of parameters:', theta_test)
+
     Gdata_sparsity = Gdata
     truncation_index = 0
     truncation_index_new = 1
@@ -188,10 +197,11 @@ for i in range(0,NumDyn):
         # Gdata_sparsity = np.delete(Gdata_sparsity, truncation_index,1) #[:,truncation_index] = 0
         Gdata_sparsity[:,truncation_index] = 0
         theta_test = ridge_reg(Gdata_sparsity,d_hat,1)
+        print('L2 esimation of parameters:', theta_test)
         truncation_index_new = np.where(np.abs(theta_test) < threshold)[1]
 
-    sparsity_index = np.sum(Gdata_sparsity,axis=0)
-    sparsity_index[sparsity_index>0] = 1
+    sparsity_index = np.squeeze(theta_test)
+    sparsity_index[sparsity_index!=0] = 1
     print('Final sparsity index: ', sparsity_index)
     ### Step 1, find for a proper start of lambda (lasso regression without Rdd norm)
     # lambda_trial = np.linspace(0, 0.1, num=100,endpoint=False)
@@ -257,7 +267,8 @@ for i in range(0,NumDyn):
         posterior_samples = np.squeeze(posterior_samples_obj.posterior["theta"].values)
         print(np.mean(posterior_samples,axis=0))
         print(np.std(posterior_samples,axis=0))
-        sindy_dist(posterior_samples,str(i))
+        multiplot_dist(posterior_samples,str(i),str(i)+'_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)))
+        print(posterior_samples.shape)
         
         
         # print('Active term:',(np.abs(np.mean(posterior_samples,axis=0)) > 0.3).sum())
