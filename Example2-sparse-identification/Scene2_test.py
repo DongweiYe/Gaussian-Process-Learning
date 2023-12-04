@@ -1,19 +1,20 @@
 import numpy as np
 import GPy
-import pickle
 import matplotlib.pyplot as plt
 import pymc as pm
-from scipy.optimize import minimize
 from sklearn.linear_model import Lasso,Ridge
 import statsmodels.api as sm
 import pytensor as pyte
+import arviz as az
+import copy
+from scipy import optimize
 
 from LotkaVolterra_model import *
 from mcmc import *
 from visualization import *
 from validation import *
 
-np.random.seed(0)
+np.random.seed(1)
 np.set_printoptions(precision=4)
 
 ######################################
@@ -24,15 +25,11 @@ np.set_printoptions(precision=4)
 
 ### Parameters
 TrainRatio = 0.4         ### Train/Test data split ratio
-DataSparsity = 0.025      ### Take 25% of as the total data; DataSparsity =0.25 (100% data),DataSparsity=0.025 (10% data),etc
+DataSparsity = 0.05     ### Take 25% of as the total data; DataSparsity = 0.25 (100% data), DataSparsity=0.025 (10% data),etc
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0          ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0.2           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
-IC_test = 0               ### redundant function
-prior_name = 'laplace'   ### laplace or spike-slab
-
-spike_std = 1e-2    ### std of spike (normal) distribution
-slab_std = 1e0     ### std of slab (normal) distribution
+IC_test = 0              ### redundant function
 
 
 ### Load data and add noise
@@ -75,7 +72,6 @@ ytrain_backup = np.hstack((np.expand_dims(x1[samplelist],axis=1),np.expand_dims(
 # plt.plot(Xtrain,ytrain[:,0],'*',color='tab:red',markersize=8,label='data')
 # # plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
 
-# # plt.plot(timedata,x2,'-k',label='x2')
 # plt.xlabel(r'$t$')
 # plt.ylabel(r'$x_i(t)$')
 # plt.legend(fontsize=12)
@@ -137,6 +133,7 @@ for i in range(0,NumDyn):
     ### smallest Kdd_noise to make Kdd invertable
     Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) 
     Kdd_noise = 1e-5
+
     print('Condition number of Kdd is:',np.linalg.cond(Kdd))
     print('Determinant of Kdd is:',np.linalg.det(Kdd))
     if np.linalg.det(Kdd) == 0:
@@ -169,7 +166,7 @@ for i in range(0,NumDyn):
                     np.multiply(ytrain_hat[:,1:2],ytrain_hat[:,1:2]),  \
                     np.multiply(ytrain_hat[:,0:1],ytrain_hat[:,1:2]))) 
 
-    
+
     ### Threshold truncation using ridge regression
     def ridge_reg(g_data,d_data,regu):
         regressor = Ridge(alpha = regu)
@@ -177,151 +174,83 @@ for i in range(0,NumDyn):
         # print('Regu parameter:',regressor.coef_)
         return regressor.coef_
 
-    def regulized_GLS(g_data,d_data,cov_matrix):
-        gls_model = sm.GLS(d_data, g_data, sigma=cov_matrix)
-        gls_results = gls_model.fit_regularized(method='elastic_net',alpha=1,L1_wt=0)
-        # gls_results = gls_model.fit()
-        return gls_results.params
+    # def regulized_GLS(g_data,d_data,cov_matrix):
+    #     gls_model = sm.GLS(d_data, g_data, sigma=cov_matrix)
+    #     gls_results = gls_model.fit()
+    #     return gls_results.params
 
-    threshold = 0.2
-    # theta_test = ridge_reg(Gdata,d_hat,1)
-    theta_test = regulized_GLS(Gdata,d_hat,invRdd).reshape(1,-1)
+    ### The thresdhold should be set that at least the one term can be truncated after first MAP estimation
+    ### So it may vary to cases to cases. An alternative way is to choose by parameter sweeping 
+    ### combining cross-validation on data residual.
+    threshold = 0.5
+    
+    theta_test = ridge_reg(Gdata,d_hat,1)
+    # theta_test = regulized_GLS(Gdata,d_hat,invRdd).reshape(1,-1)
+    
     print('L2 esimation of parameters:', theta_test)
 
+    ### STRidge
     Gdata_sparsity = Gdata
-    truncation_index = 0
-    truncation_index_new = 1
-    while np.min(np.abs(theta_test)) < threshold and np.sum(truncation_index)-np.sum(truncation_index_new)!=0:
-        truncation_index = np.where(np.abs(theta_test) < threshold)[1]
-        print('Truncation index: ',truncation_index)
-        # Gdata_sparsity = np.delete(Gdata_sparsity, truncation_index,1) #[:,truncation_index] = 0
-        Gdata_sparsity[:,truncation_index] = 0
+    stay_index = np.array([0,1,2,3,4,5])
+
+    while np.min(np.abs(theta_test)) < threshold: # and np.sum(truncation_index+1)-np.sum(truncation_index_new+1)!=0:
+        stay_index = stay_index[np.squeeze(np.abs(theta_test) > threshold)]
+        print('Stay (big coefficients) index: ',stay_index)
+        Gdata_sparsity = Gdata[:,stay_index]
         theta_test = ridge_reg(Gdata_sparsity,d_hat,1)
+        # theta_test = regulized_GLS(Gdata_sparsity,d_hat,invRdd).reshape(1,-1)
         print('L2 esimation of parameters:', theta_test)
-        truncation_index_new = np.where(np.abs(theta_test) < threshold)[1]
 
-    sparsity_index = np.squeeze(theta_test)
-    sparsity_index[sparsity_index!=0] = 1
+    sparsity_index = np.zeros(6)
+    sparsity_index[np.squeeze(stay_index)] = 1
     print('Final sparsity index: ', sparsity_index)
-    ### Step 1, find for a proper start of lambda (lasso regression without Rdd norm)
-    # lambda_trial = np.linspace(0, 0.1, num=100,endpoint=False)
-    
-    # def LASSO_reg(regu_para):
-    #     if isinstance(regu_para, int) == True or isinstance(regu_para, float) == True:
-    #         lasso_regressor = Lasso(alpha = regu_para)
-    #     else:
-    #         lasso_regressor = Lasso(alpha = regu_para[0])
-    #     lasso_regressor.fit(Gdata,d_hat)
-    #     MAP_value = np.sum(np.square(Gdata@lasso_regressor.coef_ - np.squeeze(d_hat))) + 2*Kuu.shape[0]*lambda_trial[lambda_i]* np.sum(np.abs(lasso_regressor.coef_))
-    #     print('Regu parameter:',regu_para,'; MAP:',MAP_value,'; Coefficients:',lasso_regressor.coef_)
-    #     return MAP_value
-
-    # MAParray = []
-    # for lambda_i in range(len(lambda_trial)):
-    #     MAParray.append(LASSO_reg(lambda_trial[lambda_i])) 
-    # min_index = np.argmin(np.asarray(MAParray))
-    # init_guess = lambda_trial[min_index]*Kuu.shape[0]
-    # print('Index:',min_index )
-    # print('Select initial guess:', init_guess)
-    # if init_guess == 0:
-    #     init_guess = 1e-8
-    ### Optimise with MAP for the best lambda
-    # result = minimize(LASSO_reg, init_guess, method="nelder-mead")
 
     basic_model = pm.Model()
 
     with basic_model:
-        # Priors for theta, parameter b in laplace is actually 1/lambda (lambda is penalty coef) 
-        if prior_name == 'laplace':
-            b_sparse = 1e-8
-            b_nonsparse = 1e1
-            b_list = []
-            for cand_i in range(6):
-                if sparsity_index[cand_i] == 0:
-                    b_list.append([b_sparse])
-                else:
-                    b_list.append([b_nonsparse])
-            print(b_list)
-            theta = pm.Laplace("theta", mu=0, b=pyte.tensor.stack(b_list),shape=(6,1))
-            # Kddnoise = pm.Normal("Kddnoise",mu=0, sigma=1e2)
 
-        elif prior_name == 'spike-slab':
-            bi_sample = pm.Bernoulli('bi_sample',p=0.5,shape=(6,1))
-            spike = pm.Laplace("spike", mu=0, b=spike_std,shape=(6,1))
-            slab = pm.Normal("slab", mu=0, sigma=slab_std,shape=(6,1))
-            theta = slab*bi_sample + spike*(1-bi_sample)
-        
+        ### Priors for theta, parameter b in laplace is actually 1/lambda (lambda is penalty coef) 
+        b_sparse = 1e-7
+        b_nonsparse = 1e1
+        b_list = []
+        for cand_i in range(6):
+
+            if sparsity_index[cand_i] == 0:
+                b_list.append([b_sparse])
+            else:
+                b_list.append([b_nonsparse])
+
+        theta = pm.Laplace("theta", mu=0, b=pyte.tensor.stack(b_list),shape=(6,1))
         covariance = invRdd
-        # covariance = np.identity(invRdd.shape[0])
-
         mu = Gdata@theta
+
         Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=covariance, observed=d_hat)
-        approx = pm.fit(100000, callbacks=[pm.callbacks.CheckParametersConvergence(tolerance=1e-4)]) 
-        # trace = pm.sample(500, return_inferencedata=False,cores=4,tune=500,random_seed=0)
+        # approx = pm.fit(100000,method='fullrank_advi',random_seed=0) 
 
-    if prior_name == 'laplace':
-        # posterior_samples = np.squeeze(trace.get_values('theta', combine=True))
-        # sindy_dist(posterior_samples,str(i))
+        step = pm.Metropolis()
+        trace = pm.sample(1000,step=step, return_inferencedata=False,cores=4,tune=1000,random_seed=0)
+        # trace = pm.sample(500, return_inferencedata=False,cores=4,tune=500,random_seed=0,nuts_sampler="numpyro")
+
+    posterior_samples = np.squeeze(trace.get_values("theta", combine=True))
+    print('Mean:',np.mean(posterior_samples,axis=0))
+    print('var:',np.var(posterior_samples,axis=0))
+    multiplot_dist(posterior_samples,str(i),str(i)+'_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)))
+
+    # posterior_samples_obj = approx.sample(10000)
+    # posterior_samples = np.squeeze(posterior_samples_obj.posterior["theta"].values)
+    # print(np.mean(posterior_samples,axis=0))
+    # print(np.var(posterior_samples,axis=0))
+    # multiplot_dist(posterior_samples,str(i),str(i)+'_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)))
         
-        posterior_samples_obj = approx.sample(1000)
-        posterior_samples = np.squeeze(posterior_samples_obj.posterior["theta"].values)
-        print(np.mean(posterior_samples,axis=0))
-        print(np.std(posterior_samples,axis=0))
-        multiplot_dist(posterior_samples,str(i),str(i)+'_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)))
-        print(posterior_samples.shape)
-        
-        
-        # print('Active term:',(np.abs(np.mean(posterior_samples,axis=0)) > 0.3).sum())
-        # ### Not sparse, skip this round
-        # if (np.abs(np.mean(posterior_samples,axis=0)) > 0.3).sum() >=4:
-        #     print('No sparsity, break')
-        #     break
-        # ### Too sparse skip this round
-        # elif np.sum(np.abs(np.mean(posterior_samples,axis=0))) <2e-1: 
-        #     print('Too much sparsity, break')
-        #     break
-        # else:
-        #     para_mean.append(np.mean(posterior_samples,axis=0))
-        #     para_cova.append(np.std(posterior_samples,axis=0))
+    para_mean.append(np.mean(posterior_samples,axis=0))
+    para_cova.append(np.var(posterior_samples,axis=0))
 
+print('Inferred parameter:',np.array(para_mean))
+print('Inferred parameter (var):',np.array(para_cova))
 
-    elif prior_name == 'spike-slab':
-        posterior_samples_bi = np.squeeze(trace.get_values('bi_sample', combine=True))
-        posterior_samples_spike = np.squeeze(trace.get_values('spike', combine=True))
-        posterior_samples_slab = np.squeeze(trace.get_values('slab', combine=True))
-
-        print(posterior_samples_bi)
-        print(np.mean(posterior_samples_bi,axis=0))
-        print(np.mean(posterior_samples_slab,axis=0))
-        print(np.mean(posterior_samples_spike,axis=0))
-    
-        print(np.mean(posterior_samples_bi,axis=0)*np.mean(posterior_samples_slab,axis=0) + (1-np.mean(posterior_samples_bi,axis=0))* np.mean(posterior_samples_spike,axis=0))
-        # print(np.std(posterior_samples_bi,axis=0),np.std(posterior_samples_spike,axis=0),np.std(posterior_samples_slab,axis=0))
-
-print('Inferred parameter:',para_mean)
-print('Inferred parameter (std):',para_cova)
-### Check inferred parameter is sparse or too sparse
-
-
-# valid_error = pred_validation(regu_para,x1,x2,Xtrain,ytrain,para_mean)
-# print('Validate error:',valid_error)
-
-
-# error_array = []
-# for b_i in range(laplace_b.shape[0]):
-#     error_array.append(gpndy(laplace_b[b_i,:]))
-
-# min_error = np.argmin(error_array)
-# print(error_array)
-# print(min_error)
-
-# x0_guess = laplace_b[min_error-1,:]
-# # bnds = ((-4,-1),(-4,-1))
-# result = minimize(gpndy, x0_guess, method="nelder-mead",options={'adaptive': True})
-
-
+# np.save('result/Mean_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)),np.array(para_mean))
+# np.save('result/Vari_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)),np.array(para_cova))
      
-
 # np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))
 # np.save('result/parameter/Cov_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_cova)))
 
