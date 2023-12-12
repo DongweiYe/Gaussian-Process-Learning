@@ -4,6 +4,7 @@ import matplotlib
 import seaborn as sns
 from matplotlib.ticker import FormatStrFormatter
 import matplotlib.ticker as mticker
+import copy
 def oneplot_dist(samples,name):
     
     fig, axes = plt.subplots(nrows=6, ncols=1, figsize=(3, 8), sharex=True)
@@ -103,5 +104,5 @@ def multiplot_dist(samples,eqn,name):
     
     # plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
     # plt.show()
-    plt.savefig('sparsity_inference_'+name+'.png',bbox_inches='tight')
+    plt.savefig('sparsity_inference_'+name+'.png',bbox_inches='tight',transparent=True)
     
