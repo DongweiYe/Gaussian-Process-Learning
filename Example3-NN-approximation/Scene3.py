@@ -15,24 +15,24 @@ np.random.seed(0)
 ########################################
 
 ### Parameters
-TrainRatio = 0.25         ### Train/Test data split ratio
-DataSparsity = 0.025       ### Similar to previous examples, we take 25% of data as total data, i.e. DataSparsity = 0.25 (100% data)
+TrainRatio = 1         ### Train/Test data split ratio
+NumDataTrain = 10       ### Similar to previous examples, we take 25% of data as total data, i.e. DataSparsity = 0.25 (100% data)
 NoiseMean = 0            ### 0 mean for white noise
 NoisePer = 0         ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
-ShapeNN = [1,8,8,1]        ### nodes of each layer of a neural network, e.g. [1,8,8,1]
+ShapeNN = [1,8,1]        ### nodes of each layer of a neural network, e.g. [1,8,8,1]
 PosteriorSample = 1000    ### number of posterior samples from MCMC
 
 ### Load data and add noise
-x = np.load('data/ODEdata.npy')
+x = np.load('data/ODEdata_0.npy')
 timedata = np.load('data/time.npy')
 
 NoiseSTD = NoisePer*np.mean(x)
 xdata = x + np.random.normal(NoiseMean,NoiseSTD,x.shape[0])
 
 ### Compute the required training data and randomly sample from the list
-num_data = x.shape[0] - 1  ### 0 -> K, using [0,K-1] for int
-num_train = int((num_data*TrainRatio)*DataSparsity) 
-samplelist = np.random.choice(np.arange(0,int(num_data*TrainRatio)),num_train,replace=False)
+total_data = x.shape[0] - 1  ### 0 -> K, using [0,K-1] for int
+num_train = NumDataTrain
+samplelist = np.random.choice(np.arange(0,int(total_data*TrainRatio)),num_train,replace=False)
 
 print('Data from training: ',num_train)
 
@@ -93,28 +93,23 @@ with pm.Model() as model:
     layer1_weight = pm.Normal('l1_w', 0, sigma=10, shape=(ShapeNN[0],ShapeNN[1]))
     layer1_bias = pm.Normal('l1_b', 0, sigma=10, shape=ShapeNN[1])
     layer2_weight = pm.Normal('l2_w', 0, sigma=10, shape=(ShapeNN[1],ShapeNN[2]))
-    layer2_bias = pm.Normal('l2_b', 0, sigma=10, shape=ShapeNN[2])
-    layer3_weight = pm.Normal('l3_w', 0, sigma=10, shape=(ShapeNN[2],ShapeNN[3]))
 
     ### Feedforward
     layer1 = pm.math.tanh(pm.math.dot(ytrain_hat,layer1_weight) + layer1_bias)
-    layer2 = pm.math.tanh(pm.math.dot(layer1,layer2_weight) + layer2_bias)
-    out = pm.math.dot(layer2,layer3_weight)
+    out = pm.math.dot(layer1,layer2_weight)
     # layer1 = pm.Deterministic('a1',pm.math.tanh(layer1_weight*ytrain_hat+layer1_bias))
     # layer2 = pm.Deterministic('a2',layer2_weight*layer1)
 
     Y_obs = pm.MvNormal('Y_obs', mu=out, cov=invRdd, observed=d_hat)
     
     step = pm.Metropolis()
-    trace = pm.sample(PosteriorSample,step=step, return_inferencedata=False,cores=4,tune=1000,random_seed=0)
+    trace = pm.sample(PosteriorSample,step=step, return_inferencedata=False,cores=4,tune=2000,random_seed=0)
     # approx = pm.fit(100000,method='fullrank_advi',random_seed=0) ### VI
 
 
 posterior_samples_l1w = np.squeeze(trace.get_values("l1_w", combine=True))
 posterior_samples_l1b = np.squeeze(trace.get_values("l1_b", combine=True))
 posterior_samples_l2w = np.squeeze(trace.get_values("l2_w", combine=True))
-posterior_samples_l2b = np.squeeze(trace.get_values("l2_b", combine=True))
-posterior_samples_l3w = np.squeeze(trace.get_values("l3_w", combine=True))
 
 # posterior_samples_obj = approx.sample(10000)
 # posterior_samples_1 = np.squeeze(posterior_samples_obj.posterior["l1_w"].values)
@@ -127,7 +122,7 @@ print('Max x for training: ',np.max(ytrain_hat))
 print('Min x for training: ',np.min(ytrain_hat))
 expscale = 1*(np.max(ytrain_hat) - np.min(ytrain_hat))
 # fi_input = np.expand_dims(np.arange(0,0.5,0.01),axis=1)
-fi_input = np.expand_dims(np.arange(0,np.max(ytrain_hat)+expscale,0.01),axis=1)
+fi_input = np.expand_dims(np.arange(0.01,np.max(xdata),0.01),axis=1)
 
 f_predlist = []
 for i in range(PosteriorSample*4):
@@ -135,8 +130,7 @@ for i in range(PosteriorSample*4):
         print('fi prediction; Sample:',i)
     
     layer1 = np.tanh(np.dot(fi_input,posterior_samples_l1w[i:(i+1),:]) + posterior_samples_l1b[i:(i+1),:])
-    layer2 = np.tanh(np.dot(layer1,posterior_samples_l2w[i,:,:]) + posterior_samples_l2b[i:(i+1),:])
-    fi_output = np.dot(layer2,posterior_samples_l3w[i,:])
+    fi_output = np.dot(layer1,posterior_samples_l2w[i,:])
     f_predlist.append(np.squeeze(fi_output))
 
 f_prediction_mean = np.mean(np.asarray(f_predlist),axis=0)
@@ -170,7 +164,7 @@ if legend_switch == 1:
     plt.plot(fi_input,-np.square(fi_input)+fi_input,'-k',linewidth=3,label='ground truth')
     plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=2,frameon=False)
 plt.grid(alpha=0.5)
-plt.savefig('result/figure/fi_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+plt.savefig('result/figure/fi_N'+str(int(NoisePer*100))+'D'+str(int(num_train))+'.png',bbox_inches='tight')
 
 
 
@@ -182,9 +176,9 @@ for i in range(PosteriorSample*4):
     if i%500==0:
         print('dynamics prediction; Sample:',i)
     ### other model parameters
-    x_t0 = 0.1
+    x_t0 = 0.01
     dt = 1e-3
-    T = 5
+    T = 9
 
     num_T = int(T/dt)
     pre_x = x_t0
@@ -193,8 +187,7 @@ for i in range(PosteriorSample*4):
     for timestep in range(num_T):
         
         layer1 = np.tanh(np.dot(pre_x,posterior_samples_l1w[i:(i+1),:]) + posterior_samples_l1b[i:(i+1),:])
-        layer2 = np.tanh(np.dot(layer1,posterior_samples_l2w[i,:,:]) + posterior_samples_l2b[i:(i+1),:])
-        f_pred = np.dot(np.squeeze(layer2),posterior_samples_l3w[i,:])
+        f_pred = np.dot(np.squeeze(layer1),posterior_samples_l2w[i,:])
         next_x = dt*f_pred + pre_x
 
         xlist.append(next_x.item())
@@ -231,10 +224,10 @@ if legend_switch == 1:
     plt.plot(timedata,x,'-k',linewidth=3,label='ground truth')
     plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=2,frameon=False)
 
-plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
+# plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
 plt.grid(alpha=0.5)
-
-plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+# plt.ylim([0,1.2])
+plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(num_train))+'.png',bbox_inches='tight')
 
 
 
