@@ -9,17 +9,16 @@ np.random.seed(0)
 ######################################
 ############## Scenario 1 ############
 ######################################
-### The covariance matrix is highly possible to singular if no noise is added
-### This applies to Kdd, Kuu, Kud and Kdu
 
 ### Parameters
 TrainRatio = 0.4         ### Train/Test data split ratio
-DataSparsity = 0.025      ### Take 25% of as the total data we have
+DataSparsity = 0.25      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.1           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0.1             ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 PosteriorSample = 1000    ### posterior sampling numbers
-IC_test = 0               ### redundant function
+IC_test = 1               ### redundant function
+plotfunc = True
 
 ### Load data and add noise
 x1 = np.load('data/x1.npy')
@@ -29,20 +28,19 @@ timedata = np.load('data/time.npy')
 NoiseSTD1 = NoisePer*np.mean(x1)
 NoiseSTD2 = NoisePer*np.mean(x2)
 
-# with open('state_noise.obj', 'wb') as f:
-#     pickle.dump(np.random.get_state(), f)
-
+### For noise free cases, add minor noise to ensure the good conditioning of data matrix 
+# if NoisePer == 0:
+#     preydata = x1 + np.random.normal(NoiseMean,1e-4,x1.shape[0])
+#     preddata = x2 + np.random.normal(NoiseMean,1e-4,x2.shape[0])
+# else:
 preydata = x1 + np.random.normal(NoiseMean,NoiseSTD1,x1.shape[0])
 preddata = x2 + np.random.normal(NoiseMean,NoiseSTD2,x2.shape[0])
 
 num_data = preddata.shape[0] - 1 ### 0 -> K, using [0,K-1] for int
 num_train = int((num_data*TrainRatio)*DataSparsity) 
 
-# with open('state_time.obj', 'wb') as f:
-#     pickle.dump(np.random.get_state(), f)
-
 samplelist = np.random.choice(np.arange(0,int(num_data*TrainRatio)),num_train,replace=False)
-
+print('Data for training:',num_train)
 
 ### Define training data 
 Xtrain = np.expand_dims(timedata[samplelist],axis=1)
@@ -54,7 +52,8 @@ plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
 plt.plot(timedata,x1,'-k',label='x1')
 plt.plot(timedata,x2,'-k',label='x2')
 plt.legend()
-plt.show()
+plt.savefig("train_data_and_latent_dynamics.png")
+plt.clf()
 
 ### Build a GP to infer the hyperparameters for each dynamic equation 
 ### and proper G_i data from regression
@@ -63,7 +62,7 @@ kernellist = []
 GPlist = []
 
 for i in range(0,NumDyn):
-    xtkernel = GPy.kern.RBF(input_dim=1, variance=1, lengthscale=2)
+    xtkernel = GPy.kern.RBF(input_dim=1, variance=1, lengthscale=1)
     xtGP = GPy.models.GPRegression(Xtrain,ytrain[:,i:(i+1)],xtkernel)
 
     xtGP.optimize(messages=False, max_f_eval=1, max_iters=1e7)
@@ -71,13 +70,13 @@ for i in range(0,NumDyn):
     
     ypred,yvar = xtGP.predict(Xtrain)
 
-    # plt.plot(Xtrain,ypred,'*',label='prediction')
-    # plt.plot(Xtrain,ytrain[:,i:(i+1)],'*',label='GT')
-    # plt.legend()
-    # plt.show()
+    plt.plot(Xtrain,ypred,'o',label='prediction')
+    plt.plot(Xtrain,ytrain[:,i:(i+1)],'*',label='GT')
+    plt.legend()
+    plt.savefig("GPdynamics"+str(i)+".png")
+    plt.clf()
     
     ytrain_hat.append(ypred)
-    
     kernellist.append(xtkernel)
     GPlist.append(xtGP)
     
@@ -98,16 +97,18 @@ for i in range(0,NumDyn):
     GPnoise = GPlist[i]['Gaussian_noise'][0][0]
     print('GP hyperparameters:',GPvariance,GPlengthscale,GPnoise)    
 
-    ### Construct the covariance matrix of equation (5)
+    ### Construct the covariance matrix of equation,
+    ### Due to the bad conditioning caused the periodic data when dealing with noise-free and large data scenarios
+    ### Add manual noise on the diagonal to relief the bad conditioning
     if NoisePer == 0:
-        Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*1e-4
-        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-4
+        Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*1e-5
+        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-5
     else:
-        Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                    ### invertable
-        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*GPnoise ### Additional noise to make sure invertable
+        Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*GPnoise                    
+        Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*GPnoise 
 
-    Kdu = kernellist[i].dK_dX(Xtrain,Xtrain,0)                                                  ### not invertable
-    Kud = Kdu.T                                                                                 ### not invertable
+    Kdu = kernellist[i].dK_dX(Xtrain,Xtrain,0)                                                  
+    Kud = Kdu.T                                                                                 
     invKuu = np.linalg.inv(Kuu)                                                  
 
     ### If we could only assume that Kuu is invertalbe, then
@@ -116,6 +117,8 @@ for i in range(0,NumDyn):
     Rud = Rdu.T
 
     # print(np.linalg.cond(Kuu))
+    # print(np.linalg.det(Kuu))
+    # print(np.linalg.matrix_rank(Kuu))
 
     if i == 0:
         G = np.hstack((ytrain_hat[:,0:1],np.multiply(ytrain_hat[:,0:1],ytrain_hat[:,1:2])))
@@ -176,73 +179,71 @@ predmean = np.mean(np.asarray(predlist_array),axis=0)
 preystd = np.std(np.asarray(preylist_array),axis=0)
 predstd = np.std(np.asarray(predlist_array),axis=0)
 
+if plotfunc == True:
+    if IC_test == 1:
+        plt.figure(figsize=(9, 2))
+        params = {
+                'axes.labelsize': 21,
+                'font.size': 21,
+                'legend.fontsize': 23,
+                'xtick.labelsize': 21,
+                'ytick.labelsize': 21,
+                'text.usetex': False,
+                'axes.linewidth': 2,
+                'xtick.major.width': 2,
+                'ytick.major.width': 2,
+                'xtick.major.size': 2,
+                'ytick.major.size': 2,
+            }
+        plt.rcParams.update(params)
+        new_timedata = np.arange(0,T+T/(T/dt)*0.1,T/(T/dt))
+        plt.plot(new_timedata,preylist_IC,'-k',linewidth=3,label='ground truth')
+        plt.plot(new_timedata,predatorlist_IC,'-k',linewidth=3)
 
-if IC_test == 1:
-    plt.figure(figsize=(9, 2))
-    params = {
-            'axes.labelsize': 21,
-            'font.size': 21,
-            'legend.fontsize': 23,
-            'xtick.labelsize': 21,
-            'ytick.labelsize': 21,
-            'text.usetex': False,
-            'axes.linewidth': 2,
-            'xtick.major.width': 2,
-            'ytick.major.width': 2,
-            'xtick.major.size': 2,
-            'ytick.major.size': 2,
-        }
-    plt.rcParams.update(params)
-    new_timedata = np.arange(0,T+T/(T/dt)*0.1,T/(T/dt))
-    plt.plot(new_timedata,preylist_IC,'-k',linewidth=3,label='ground truth')
-    plt.plot(new_timedata,predatorlist_IC,'-k',linewidth=3)
+        plt.plot(new_timedata,preymean,'--',color='royalblue',linewidth=3,label=r'$x_1$ prediction')
+        plt.plot(new_timedata,predmean,'--',color='tab:orange',linewidth=3,label=r'$x_2$ prediction')
 
-    plt.plot(new_timedata,preymean,'--',color='royalblue',linewidth=3,label=r'$x_1$ prediction')
-    plt.plot(new_timedata,predmean,'--',color='tab:orange',linewidth=3,label=r'$x_2$ prediction')
+        plt.fill_between(new_timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5,label=r'$x_1$ uncertainty')
+        plt.fill_between(new_timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5,label=r'$x_2$ uncertainty')
+        plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
+        # plt.show()
+        plt.savefig('result/figure/ICs_'+str(x1_t0)+'&'+str(x2_t0)+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
 
-    plt.fill_between(new_timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5,label=r'$x_1$ uncertainty')
-    plt.fill_between(new_timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5,label=r'$x_2$ uncertainty')
-    plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=3,frameon=False)
-    plt.show()
-    # plt.savefig('result/figure/ICs/'+str(x1_t0)+'&'+str(x2_t0)+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+    else:
+        plt.figure(figsize=(17, 2))
+        params = {
+                'axes.labelsize': 21,
+                'font.size': 21,
+                'legend.fontsize': 23,
+                'xtick.labelsize': 21,
+                'ytick.labelsize': 21,
+                'text.usetex': False,
+                'axes.linewidth': 2,
+                'xtick.major.width': 2,
+                'ytick.major.width': 2,
+                'xtick.major.size': 2,
+                'ytick.major.size': 2,
+            }
+        plt.rcParams.update(params)
 
-else:
-    plt.figure(figsize=(17, 2))
-    params = {
-            'axes.labelsize': 21,
-            'font.size': 21,
-            'legend.fontsize': 23,
-            'xtick.labelsize': 21,
-            'ytick.labelsize': 21,
-            'text.usetex': False,
-            'axes.linewidth': 2,
-            'xtick.major.width': 2,
-            'ytick.major.width': 2,
-            'xtick.major.size': 2,
-            'ytick.major.size': 2,
-        }
-    plt.rcParams.update(params)
-    
+        plt.plot(timedata,x1,'-k',linewidth=3,label='ground truth')
+        plt.plot(timedata,x2,'-k',linewidth=3)
 
-    plt.plot(timedata,preymean,'--',color='royalblue',linewidth=3,label=r'$x_1$ prediction')
-    plt.plot(timedata,predmean,'--',color='tab:orange',linewidth=3,label=r'$x_2$ prediction')
+        plt.plot(timedata,preymean,'--',color='royalblue',linewidth=3,label=r'$x_1$ prediction')
+        plt.plot(timedata,predmean,'--',color='tab:orange',linewidth=3,label=r'$x_2$ prediction')
 
-    plt.fill_between(timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5,label=r'$x_1$ uncertainty')
-    plt.fill_between(timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5,label=r'$x_2$ uncertainty')
+        plt.fill_between(timedata,preymean+preystd,preymean-preystd,color='royalblue',alpha=0.5,label=r'$x_1$ uncertainty')
+        plt.fill_between(timedata,predmean+predstd,predmean-predstd,color='tab:orange',alpha=0.5,label=r'$x_2$ uncertainty')
 
-    plt.scatter(Xtrain,ytrain[:,0],marker='X',s=80,color='royalblue',edgecolors='k',label='training data '+r'($x_1$)',zorder=2)
-    plt.scatter(Xtrain,ytrain[:,1],marker='X',s=80,color='darkorange',edgecolors='k',label='training data '+r'($x_2$)',zorder=2)
+        plt.scatter(Xtrain,ytrain[:,0],marker='X',s=80,color='royalblue',edgecolors='k',label='training data '+r'($x_1$)',zorder=2.5)
+        plt.scatter(Xtrain,ytrain[:,1],marker='X',s=80,color='darkorange',edgecolors='k',label='training data '+r'($x_2$)',zorder=2.5)
 
-    plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
+        plt.axvline(timedata[-1]*TrainRatio,linestyle='-',linewidth=3,color='grey')
 
-    plt.plot(timedata,x1,'-k',linewidth=3,label='ground truth')
-    plt.plot(timedata,x2,'-k',linewidth=3)
-    
-
-    if NoisePer == 0:
-        plt.ylim([-0.8,8])
-    # plt.xlim([-1,20])
-    plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=4,frameon=False)
-    plt.show()
-    # plt.savefig('result/figure/1N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
+        if NoisePer == 0:
+            plt.ylim([-0.8,8])
+        # plt.xlim([-1,20])
+        # plt.legend(loc='upper left',bbox_to_anchor=(0.0, -0.5),ncol=4,frameon=False)
+        # plt.show()
+        plt.savefig('result/figure/N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.png',bbox_inches='tight')
     
