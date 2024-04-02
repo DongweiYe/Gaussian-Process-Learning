@@ -204,24 +204,8 @@ if comparefunc == True:
     if NoisePer != 0:
         ### Smooth via total variation and differentiation
         sfd = SmoothedFiniteDifference(axis=0)
-        y_smooth = sfd.smoother(sort_ytrain,window_length=20,polyorder=6,axis=0)  ### 20, 4
+        y_smooth = sfd.smoother(sort_ytrain,window_length=20,polyorder=6,axis=0)  ### need cases to cases tuning 
         d_hat = sfd._differentiate(sort_ytrain,sort_Xtrain[:,0])/2
-
-        # plt.plot(sort_Xtrain,sort_ytrain[:,0],'*')
-        # plt.plot(sort_Xtrain,sort_ytrain[:,1],'*')
-        # plt.plot(sort_Xtrain,y_smooth[:,0],label='smoothed x1')
-        # plt.plot(sort_Xtrain,y_smooth[:,1],label='smoothed x2')
-        # plt.legend()
-        # plt.savefig('sort_data.png')
-        # plt.clf()
-
-        # plt.plot(timedata,1.5*x1-x1*x2,'-k',label='x1')
-        # plt.plot(timedata,x1*x2-3*x2,'-k',label='x2')
-        # plt.plot(sort_Xtrain,d_hat[:,0])
-        # plt.plot(sort_Xtrain,d_hat[:,1])
-        # plt.legend()
-        # plt.savefig('dhat.png')
-
 
     else:
         ### Finite different to comput the derivative for noise-free data (without smoothing)
@@ -229,13 +213,6 @@ if comparefunc == True:
         delta_t = sort_Xtrain[1:,:]-sort_Xtrain[:-1,:]
         d_hat = np.divide(delta_y,delta_t)
         y_smooth = sort_ytrain[1:,:]
-
-        # plt.plot(timedata,1.5*x1-x1*x2,'-k',label='x1')
-        # plt.plot(timedata,x1*x2-3*x2,'-k',label='x2')
-        # plt.plot(sort_Xtrain,d_hat[:,0])
-        # plt.plot(sort_Xtrain,d_hat[:,1])
-        # plt.legend()
-        # plt.savefig('dhat.png')
 
     ### Inference
     for i in range(0,NumDyn):
