@@ -2,6 +2,8 @@ import numpy as np
 import GPy
 import pickle
 import matplotlib.pyplot as plt
+from pysindy.differentiation import SmoothedFiniteDifference,FiniteDifference
+from sklearn.linear_model import Ridge
 from LotkaVolterra_model import *
 np.random.seed(0)
 
@@ -12,13 +14,16 @@ np.random.seed(0)
 
 ### Parameters
 TrainRatio = 0.4         ### Train/Test data split ratio
-DataSparsity = 0.25      ### Take 25% of as the total data we have
+DataSparsity = 0.0025      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.1             ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0             ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 PosteriorSample = 1000    ### posterior sampling numbers
-IC_test = 1               ### redundant function
-plotfunc = True
+IC_test = 0               ### test on different initial condition
+
+time_integration = True   ### perform reconstruction based on inferred parameters
+plotfunc = True           ### plot the reconstruction result
+comparefunc = True        ### Enable comparsion (linear regression with finite difference)
 
 ### Load data and add noise
 x1 = np.load('data/x1.npy')
@@ -28,11 +33,6 @@ timedata = np.load('data/time.npy')
 NoiseSTD1 = NoisePer*np.mean(x1)
 NoiseSTD2 = NoisePer*np.mean(x2)
 
-### For noise free cases, add minor noise to ensure the good conditioning of data matrix 
-# if NoisePer == 0:
-#     preydata = x1 + np.random.normal(NoiseMean,1e-4,x1.shape[0])
-#     preddata = x2 + np.random.normal(NoiseMean,1e-4,x2.shape[0])
-# else:
 preydata = x1 + np.random.normal(NoiseMean,NoiseSTD1,x1.shape[0])
 preddata = x2 + np.random.normal(NoiseMean,NoiseSTD2,x2.shape[0])
 
@@ -46,6 +46,7 @@ print('Data for training:',num_train)
 Xtrain = np.expand_dims(timedata[samplelist],axis=1)
 ytrain = np.hstack((np.expand_dims(preydata[samplelist],axis=1),np.expand_dims(preddata[samplelist],axis=1)))
 ytrain_backup = np.hstack((np.expand_dims(x1[samplelist],axis=1),np.expand_dims(x2[samplelist],axis=1)))
+
 
 plt.plot(Xtrain,ytrain[:,0],'*',label='x1 dynamics')
 plt.plot(Xtrain,ytrain[:,1],'*',label='x2 dynamics')
@@ -98,8 +99,8 @@ for i in range(0,NumDyn):
     print('GP hyperparameters:',GPvariance,GPlengthscale,GPnoise)    
 
     ### Construct the covariance matrix of equation,
-    ### Due to the bad conditioning caused the periodic data when dealing with noise-free and large data scenarios
-    ### Add manual noise on the diagonal to relief the bad conditioning
+    ### Due to the ill condition caused the periodic data when dealing with noise-free and large data scenarios
+    ### Add manual noise on the diagonal to get small condition number
     if NoisePer == 0:
         Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*1e-5
         Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-5
@@ -130,55 +131,130 @@ for i in range(0,NumDyn):
     para_mean.append(mu_mean)
     para_cova.append(mu_covariance)
 
+
 print('Parameter mean:', para_mean)
 print('Parameter covariance: ',para_cova)
 
-# np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))
-# np.save('result/parameter/Cov_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_cova)))
+np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))
+np.save('result/parameter/Cov_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_cova)))
 
 ### Prediction with marginalization
 preylist_array = []
 predlist_array = []
 
-for i in range(PosteriorSample):
+### Sample from parameter posterior and perform reconstruction and prediction via time integration
+if time_integration == True:
+    for i in range(PosteriorSample):
 
-    mu1 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[0]),para_cova[0],1))
-    mu2 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[1]),para_cova[1],1))
+        mu1 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[0]),para_cova[0],1))
+        mu2 = np.squeeze(np.random.multivariate_normal(np.squeeze(para_mean[1]),para_cova[1],1))
 
-    ### LV other parameters
-    if IC_test == 0:
-        x1_t0 = 1
-        x2_t0 = 1
-        T = 20
-    else:
-        x1_t0 = 2
-        x2_t0 = 1.2
-        T = 10
+        ### LV other parameters
+        if IC_test == 0:
+            x1_t0 = 1
+            x2_t0 = 1
+            T = 20
+        else:
+            x1_t0 = 2
+            x2_t0 = 1.2
+            T = 10
 
-    dt = 1e-3
+        dt = 1e-3
 
-    preylist,predatorlist = LVmodel(x1_t0,x2_t0,T,dt,[mu1[0],-mu1[1],mu2[0],-mu2[1]])
-    if IC_test == 0:
-        if np.max(preylist) > 20 or np.max(predatorlist) > 20:
-            pass
+        preylist,predatorlist = LVmodel(x1_t0,x2_t0,T,dt,[mu1[0],-mu1[1],mu2[0],-mu2[1]])
+        if IC_test == 0:
+            if np.max(preylist) > 20 or np.max(predatorlist) > 20:
+                pass
+            else:
+                preylist_array.append(preylist)
+                predlist_array.append(predatorlist)
         else:
             preylist_array.append(preylist)
             predlist_array.append(predatorlist)
+
+
+    #### Addition result for different initial conditions
+    if IC_test == 1:
+        preylist_IC,predatorlist_IC = LVmodel(x1_t0,x2_t0,T,dt,[1.5,1,1,3])
+
+
+    preymean = np.mean(np.asarray(preylist_array),axis=0)
+    predmean = np.mean(np.asarray(predlist_array),axis=0)
+    preystd = np.std(np.asarray(preylist_array),axis=0)
+    predstd = np.std(np.asarray(predlist_array),axis=0)
+
+
+### This function is used to perform OpInf to compare the result
+if comparefunc == True:
+    def ridge_reg(g_data,d_data,regu):
+        regressor = Ridge(alpha = regu)
+        regressor.fit(g_data,d_data)
+        # print('Regu parameter:',regressor.coef_)
+        return regressor.coef_
+    
+
+    ### Rearrange the random data to time sequences
+    sort_Xtrain = np.sort(Xtrain,axis=0)
+    sort_index = np.argsort(Xtrain,axis=None)
+    sort_ytrain = ytrain[sort_index,:]
+    para_OpInf = []
+    
+
+    ### denoise by total variation regularization (smoothing)
+    if NoisePer != 0:
+        ### Smooth via total variation and differentiation
+        sfd = SmoothedFiniteDifference(axis=0)
+        y_smooth = sfd.smoother(sort_ytrain,window_length=20,polyorder=6,axis=0)  ### 20, 4
+        d_hat = sfd._differentiate(sort_ytrain,sort_Xtrain[:,0])/2
+
+        # plt.plot(sort_Xtrain,sort_ytrain[:,0],'*')
+        # plt.plot(sort_Xtrain,sort_ytrain[:,1],'*')
+        # plt.plot(sort_Xtrain,y_smooth[:,0],label='smoothed x1')
+        # plt.plot(sort_Xtrain,y_smooth[:,1],label='smoothed x2')
+        # plt.legend()
+        # plt.savefig('sort_data.png')
+        # plt.clf()
+
+        # plt.plot(timedata,1.5*x1-x1*x2,'-k',label='x1')
+        # plt.plot(timedata,x1*x2-3*x2,'-k',label='x2')
+        # plt.plot(sort_Xtrain,d_hat[:,0])
+        # plt.plot(sort_Xtrain,d_hat[:,1])
+        # plt.legend()
+        # plt.savefig('dhat.png')
+
+
     else:
-        preylist_array.append(preylist)
-        predlist_array.append(predatorlist)
+        ### Finite different to comput the derivative for noise-free data (without smoothing)
+        delta_y = sort_ytrain[1:,:]-sort_ytrain[:-1,:]
+        delta_t = sort_Xtrain[1:,:]-sort_Xtrain[:-1,:]
+        d_hat = np.divide(delta_y,delta_t)
+        y_smooth = sort_ytrain[1:,:]
+
+        # plt.plot(timedata,1.5*x1-x1*x2,'-k',label='x1')
+        # plt.plot(timedata,x1*x2-3*x2,'-k',label='x2')
+        # plt.plot(sort_Xtrain,d_hat[:,0])
+        # plt.plot(sort_Xtrain,d_hat[:,1])
+        # plt.legend()
+        # plt.savefig('dhat.png')
+
+    ### Inference
+    for i in range(0,NumDyn):
+        if i == 0:
+            G = np.hstack((y_smooth[:,0:1],np.multiply(y_smooth[:,0:1],y_smooth[:,1:2])))
+        else:
+            G = np.hstack((np.multiply(y_smooth[:,0:1],y_smooth[:,1:2]),y_smooth[:,1:2]))
+
+        theta_compare = ridge_reg(G,d_hat[:,i:i+1],1)        
+        para_OpInf.append(theta_compare)
+        print('OpInf prediciton:',theta_compare)
+    
+    # para_OpInf = np.asarray(para_OpInf)
+    print(para_OpInf,para_mean)
+    np.save('result/parameter/OpInf_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_OpInf)))
 
 
-#### Addition result for different initial conditions
-if IC_test == 1:
-    preylist_IC,predatorlist_IC = LVmodel(x1_t0,x2_t0,T,dt,[1.5,1,1,3])
 
-
-preymean = np.mean(np.asarray(preylist_array),axis=0)
-predmean = np.mean(np.asarray(predlist_array),axis=0)
-preystd = np.std(np.asarray(preylist_array),axis=0)
-predstd = np.std(np.asarray(predlist_array),axis=0)
-
+### This function is used to plot the reconstruction/prediction of the dynamics over time
 if plotfunc == True:
     if IC_test == 1:
         plt.figure(figsize=(9, 2))
