@@ -21,9 +21,9 @@ T = 20
 
 preylist,predatorlist = LVmodel(x1_t0,x2_t0,T,dt,[alpha,beta,delta,gamma])
 
-# plt.plot(np.arange(0,T+T/(T/dt),T/(T/dt)),preylist)
-# plt.plot(np.arange(0,T+T/(T/dt),T/(T/dt)),predatorlist)
-# plt.show()
+plt.plot(np.arange(0,T+T/(T/dt),T/(T/dt)),preylist)
+plt.plot(np.arange(0,T+T/(T/dt),T/(T/dt)),predatorlist)
+plt.savefig('data.png')
 
 print(preylist.shape)
 

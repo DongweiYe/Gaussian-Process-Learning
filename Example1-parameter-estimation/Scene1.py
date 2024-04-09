@@ -3,6 +3,8 @@ import GPy
 import pickle
 import matplotlib.pyplot as plt
 from pysindy.differentiation import SmoothedFiniteDifference,FiniteDifference
+import pysindy as ps
+from scipy.signal import savgol_filter
 from sklearn.linear_model import Ridge
 from LotkaVolterra_model import *
 np.random.seed(0)
@@ -14,16 +16,18 @@ np.random.seed(0)
 
 ### Parameters
 TrainRatio = 0.4         ### Train/Test data split ratio
-DataSparsity = 0.0025      ### Take 25% of as the total data we have
+DataSparsity = 0.25      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0             ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0.2             ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 PosteriorSample = 1000    ### posterior sampling numbers
 IC_test = 0               ### test on different initial condition
 
-time_integration = True   ### perform reconstruction based on inferred parameters
-plotfunc = True           ### plot the reconstruction result
+time_integration = False   ### perform reconstruction based on inferred parameters
+plotfunc = False           ### plot the reconstruction result
 comparefunc = True        ### Enable comparsion (linear regression with finite difference)
+smooth_tpye = 'SG'    ### None, SG or Spline,   
+save_data = True
 
 ### Load data and add noise
 x1 = np.load('data/x1.npy')
@@ -135,8 +139,9 @@ for i in range(0,NumDyn):
 print('Parameter mean:', para_mean)
 print('Parameter covariance: ',para_cova)
 
-np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))
-np.save('result/parameter/Cov_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_cova)))
+if save_data == True:
+    np.save('result/parameter/Mean_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_mean)))
+    np.save('result/parameter/Cov_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_cova)))
 
 ### Prediction with marginalization
 preylist_array = []
@@ -202,10 +207,49 @@ if comparefunc == True:
 
     ### denoise by total variation regularization (smoothing)
     if NoisePer != 0:
-        ### Smooth via total variation and differentiation
-        sfd = SmoothedFiniteDifference(axis=0)
-        y_smooth = sfd.smoother(sort_ytrain,window_length=20,polyorder=6,axis=0)  ### need cases to cases tuning 
-        d_hat = sfd._differentiate(sort_ytrain,sort_Xtrain[:,0])/2
+        ### False = no-smoothing
+        ### SFD = Smooth via total variation and differentiation
+        ### Kalman = kalman filter
+        if smooth_tpye == 'None':
+            delta_y = sort_ytrain[1:,:]-sort_ytrain[:-1,:]
+            delta_t = sort_Xtrain[1:,:]-sort_Xtrain[:-1,:]
+            d_hat = np.divide(delta_y,delta_t)
+            y_smooth = sort_ytrain[1:,:]
+
+        elif smooth_tpye == 'SG':
+            # y_smooth = savgol_filter(sort_ytrain, window_length=51,polyorder=3, axis=0)
+            # # delta_y = y_smooth[1:,:]-y_smooth[:-1,:]
+            # # delta_t = sort_Xtrain[1:,:]-sort_Xtrain[:-1,:]
+            # # d_hat = np.divide(delta_y,delta_t)
+            # # y_smooth = y_smooth[1:,:]
+            neigh_inte = 0.3
+            d_hat = ps.SINDyDerivative(kind="savitzky_golay", left=neigh_inte, right=neigh_inte, order=3)._differentiate(sort_ytrain,sort_Xtrain[:,0])
+            sfd = SmoothedFiniteDifference(axis=0)
+            y_smooth = sfd.smoother(sort_ytrain,window_length=11,polyorder=3,axis=0)  ### need cases to cases tuning 
+            # d_hat = sfd._differentiate(sort_ytrain,sort_Xtrain[:,0])/2
+
+        # elif smooth_tpye == 'TV':
+        #     d_hat = ps.SpectralDerivative()._differentiate(sort_ytrain,sort_Xtrain[:,0])
+        #     y_smooth = sort_ytrain
+
+        
+        plt.clf()
+        plt.plot(sort_Xtrain,sort_ytrain,label='data')
+        plt.plot(sort_Xtrain,y_smooth,label='smoothed data')
+        plt.plot(timedata[:8000],x1[:8000],'k-')
+        plt.plot(timedata[:8000],x2[:8000],'k-') 
+        plt.legend()       
+        plt.savefig('smoothed_data.png')
+
+        # plt.clf()
+        # plt.plot(sort_Xtrain,d_hat,'X',label='data')
+        # # plt.plot(sort_Xtrain,y_smooth,'*',label='smoothed data')
+        # plt.plot(timedata[:8000],1.5*x1[:8000] - x1[:8000]*x2[:8000],'k-')
+        # plt.plot(timedata[:8000],x2[:8000]*x1[:8000] - 3*x2[:8000],'k-') 
+        # plt.legend()       
+        # plt.savefig('smoothed_dhat.png')
+
+        
 
     else:
         ### Finite different to comput the derivative for noise-free data (without smoothing)
@@ -213,6 +257,15 @@ if comparefunc == True:
         delta_t = sort_Xtrain[1:,:]-sort_Xtrain[:-1,:]
         d_hat = np.divide(delta_y,delta_t)
         y_smooth = sort_ytrain[1:,:]
+
+        plt.clf()
+        plt.plot(sort_Xtrain,sort_ytrain,'*',label='data')
+        plt.plot(sort_Xtrain[1:,:],y_smooth,'*',label='smoothed data')
+        plt.plot(timedata[:8000],x1[:8000],'k-')
+        plt.plot(timedata[:8000],x2[:8000],'k-') 
+        plt.legend()       
+        plt.savefig('smoothed_data.png')
+
 
     ### Inference
     for i in range(0,NumDyn):
@@ -225,9 +278,9 @@ if comparefunc == True:
         para_OpInf.append(theta_compare)
         print('OpInf prediciton:',theta_compare)
     
-    # para_OpInf = np.asarray(para_OpInf)
-    print(para_OpInf,para_mean)
-    np.save('result/parameter/OpInf_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_OpInf)))
+
+    if save_data == True:
+        np.save('result/parameter/'+str(smooth_tpye)+'_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',np.squeeze(np.asarray(para_OpInf)))
 
 
 

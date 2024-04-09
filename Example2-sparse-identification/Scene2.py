@@ -5,12 +5,15 @@ import pymc as pm
 from sklearn.linear_model import Lasso,Ridge
 import statsmodels.api as sm
 import pytensor as pyte
-import arviz as az
+import pysindy as ps
 import copy
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 
 from LotkaVolterra_model import *
 from visualization import *
-from validation import *
+# from validation import *
 
 np.random.seed(1)
 np.set_printoptions(precision=4)
@@ -25,10 +28,13 @@ np.set_printoptions(precision=4)
 TrainRatio = 0.4         ### Train/Test data split ratio
 DataSparsity = 0.125     ### Take 25% of as the total data; DataSparsity = 0.25 (100% data), DataSparsity=0.025 (10% data),etc
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.2           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0.15           ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 IC_test = 0              ### redundant function
 PosteriorSample = 1000
+comparefunc = True
+smoothfunc = True
+save_data = True
 
 ### Load data and add noise
 x1 = np.load('data/x1.npy')
@@ -97,7 +103,7 @@ for i in range(0,NumDyn):
     print('GP hyperparameters:',GPvariance,GPlengthscale,GPnoise)    
 
     ### Construct the covariance matrix of equation (5)
-    ### smallest Kdd_noise to make Kdd invertable
+    ### Kdd_noise to make Kdd invertable and good condition
     if NoisePer == 0:
         Kuu = kernellist[i].K(Xtrain) + np.identity(Xtrain.shape[0])*1e-4
         Kdd = kernellist[i].dK2_dXdX2(Xtrain,Xtrain,0,0) + np.identity(Xtrain.shape[0])*1e-4
@@ -123,7 +129,8 @@ for i in range(0,NumDyn):
                     ytrain_hat[:,1:2],                          \
                     np.multiply(ytrain_hat[:,0:1],ytrain_hat[:,0:1]),  \
                     np.multiply(ytrain_hat[:,1:2],ytrain_hat[:,1:2]),  \
-                    np.multiply(ytrain_hat[:,0:1],ytrain_hat[:,1:2]))) 
+                    np.multiply(ytrain_hat[:,0:1],ytrain_hat[:,1:2]),  \
+                    )) 
 
     ### Threshold truncation using ridge regression
     def ridge_reg(g_data,d_data,regu):
@@ -145,7 +152,7 @@ for i in range(0,NumDyn):
     theta_test = ridge_reg(Gdata,d_hat,1)
     # theta_test = regulized_GLS(Gdata,d_hat,invRdd).reshape(1,-1)
     
-    print('L2 esimation of parameters:', theta_test)
+    print('     -- L2 esimation of parameters:', theta_test)
 
     ### STRidge
     Gdata_sparsity = Gdata
@@ -153,11 +160,11 @@ for i in range(0,NumDyn):
 
     while np.min(np.abs(theta_test)) < threshold: 
         stay_index = stay_index[np.squeeze(np.abs(theta_test) > threshold)]
-        print('Stay (big coefficients) index: ',stay_index)
+        print('     -- Kept (big coefficients) index: ',stay_index)
         Gdata_sparsity = Gdata[:,stay_index]
         theta_test = ridge_reg(Gdata_sparsity,d_hat,1)
         # theta_test = regulized_GLS(Gdata_sparsity,d_hat,invRdd).reshape(1,-1)
-        print('L2 esimation of parameters:', theta_test)
+        print('     -- L2 esimation of parameters:', theta_test)
 
     sparsity_index = np.zeros(6)
     sparsity_index[np.squeeze(stay_index)] = 1
@@ -180,15 +187,80 @@ for i in range(0,NumDyn):
     # print(np.mean(posterior_samples,axis=0))
     # print(np.std(posterior_samples,axis=0))
 
-print(np.array(para_mean))
-print(np.array(para_cova))
+print('GPL estimated mean:\n',np.squeeze(np.array(para_mean)))
+print('GPL estimated std:\n',np.squeeze(np.array(para_cova)))
+print('----------------------------------------------------------------------------------------')\
 
-np.save('result/Mean_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)),np.array(para_mean))
-np.save('result/Vari_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)),np.array(para_cova))
+if save_data == True:
+    np.save('result/parameter/Mean_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)),np.squeeze(np.array(para_mean)))
+    np.save('result/parameter/Vari_D'+str(int(DataSparsity*400))+'_N'+str(int(NoisePer*100)),np.squeeze(np.array(para_cova)))
 
 
+if comparefunc == True:
+    sort_Xtrain = np.sort(Xtrain,axis=0)
+    sort_index = np.argsort(Xtrain,axis=None)
+    sort_ytrain = ytrain[sort_index,:]
+    
+    poly_library = ps.PolynomialLibrary()
+    sparse_regression_optimizer = ps.STLSQ(threshold=0.5)
+
+    if NoisePer == 0:
+        model = ps.SINDy(feature_library=poly_library)
+        model.fit(sort_ytrain, t=sort_Xtrain[:,0])
+        model.print()
+
+        ### Switch the index of x1x2 and x2^2 terms in sindy poly library
+        sindy_parameter = copy.deepcopy(model.coefficients())
+        temp = np.copy(sindy_parameter[:, -2])
+        sindy_parameter[:, -2] = sindy_parameter[:, -1]
+        sindy_parameter[:, -1] = temp
+        
+        print('SINDy result:')
+        print(model.get_feature_names())
+        print(sindy_parameter)
+
+        if save_data == True:
+            np.save('result/parameter/SINDy_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',sindy_parameter)
+    
+    else:
+        if smoothfunc == True:
+            model = ps.SINDy(feature_library=poly_library, optimizer=sparse_regression_optimizer, \
+                         differentiation_method=ps.SINDyDerivative(kind="savitzky_golay", left=0.3, right=0.3, order=3),)
+        else:
+            model = ps.SINDy(feature_library=poly_library, optimizer=sparse_regression_optimizer) ### note without smoothing, not really working
+        model.fit(sort_ytrain, t=sort_Xtrain[:,0], ensemble=True,n_models=1000, quiet=True, replace=True)
+        print('Ensemble SINDy result:')
+        model.print()
+        ensemble_coefs_mean = np.mean(np.asarray(model.coef_list), axis=0)
+
+        ### Switch the index of x1x2 and x2^2 terms in sindy poly library (bagging sindy, optional)
+        # ensemble_parameter_mean = copy.deepcopy(ensemble_coefs_mean)
+        # temp = np.copy(ensemble_parameter_mean[:, -2])
+        # ensemble_parameter_mean[:, -2] = ensemble_parameter_mean[:, -1]
+        # ensemble_parameter_mean[:, -1] = temp
+        # print('Ensemble mean:\n',ensemble_parameter_mean)
+
+        ### Switch the index of x1x2 and x2^2 terms in sindy poly library (bragging sindy)
+        ensemble_coefs_median = np.median(np.asarray(model.coef_list), axis=0)
+        ensemble_parameter_median = copy.deepcopy(ensemble_coefs_median)
+        temp = np.copy(ensemble_parameter_median[:, -2])
+        ensemble_parameter_median[:, -2] = ensemble_parameter_median[:, -1]
+        ensemble_parameter_median[:, -1] = temp
+        print('Ensemble median:\n',ensemble_parameter_median)
+        
+
+        if save_data == True:
+            np.save('result/parameter/SINDy_N'+str(int(NoisePer*100))+'D'+str(int(DataSparsity*400))+'.npy',ensemble_parameter_median)
+
+
+   
+    
+
+
+
+
+#### Redundant (to be removed)
 # basic_model = pm.Model()
-
 # with basic_model:
 
 #     ### Priors for theta, parameter b in laplace is actually 1/lambda (lambda is penalty coef) 

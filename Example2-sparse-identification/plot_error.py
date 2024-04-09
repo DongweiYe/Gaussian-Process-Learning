@@ -11,8 +11,8 @@ data_list_1_mean = []
 data_list_1_vari = []
 
 for i in range(5):
-    mean = np.load('result/Mean_D'+str(int(DataSparsity[0]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
-    vari = np.load('result/Vari_D'+str(int(DataSparsity[0]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
+    mean = np.load('result/parameter/Mean_D'+str(int(DataSparsity[0]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
+    vari = np.load('result/parameter/Vari_D'+str(int(DataSparsity[0]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
 
     vari = vari[index]
 
@@ -36,8 +36,8 @@ data_list_2_mean = []
 data_list_2_vari = []
 
 for i in range(5):
-    mean = np.load('result/Mean_D'+str(int(DataSparsity[1]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
-    vari = np.load('result/Vari_D'+str(int(DataSparsity[1]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
+    mean = np.load('result/parameter/Mean_D'+str(int(DataSparsity[1]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
+    vari = np.load('result/parameter/Vari_D'+str(int(DataSparsity[1]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
     vari = vari[index]
     data_list_2_mean.append(mean)
     data_list_2_vari.append(vari)
@@ -56,8 +56,8 @@ data_list_3_mean = []
 data_list_3_vari = []
 
 for i in range(5):
-    mean = np.load('result/Mean_D'+str(int(DataSparsity[2]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
-    vari = np.load('result/Vari_D'+str(int(DataSparsity[2]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
+    mean = np.load('result/parameter/Mean_D'+str(int(DataSparsity[2]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
+    vari = np.load('result/parameter/Vari_D'+str(int(DataSparsity[2]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
     vari = vari[index]
     data_list_3_mean.append(mean)
     data_list_3_vari.append(vari)
@@ -76,8 +76,8 @@ data_list_4_mean = []
 data_list_4_vari = []
 
 for i in range(5):
-    mean = np.load('result/Mean_D'+str(int(DataSparsity[3]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
-    vari = np.load('result/Vari_D'+str(int(DataSparsity[3]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
+    mean = np.load('result/parameter/Mean_D'+str(int(DataSparsity[3]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
+    vari = np.load('result/parameter/Vari_D'+str(int(DataSparsity[3]*400))+'_N'+str(int(NoisePer[i]*100))+'.npy').flatten()
     vari = vari[index]
     data_list_4_mean.append(mean)
     data_list_4_vari.append(vari)
