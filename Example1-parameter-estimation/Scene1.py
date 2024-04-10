@@ -4,7 +4,7 @@ import pickle
 import matplotlib.pyplot as plt
 from pysindy.differentiation import SmoothedFiniteDifference,FiniteDifference
 import pysindy as ps
-from scipy.signal import savgol_filter
+from derivative import dxdt
 from sklearn.linear_model import Ridge
 from LotkaVolterra_model import *
 np.random.seed(0)
@@ -18,7 +18,7 @@ np.random.seed(0)
 TrainRatio = 0.4         ### Train/Test data split ratio
 DataSparsity = 0.25      ### Take 25% of as the total data we have
 NoiseMean = 0            ### 0 mean for white noise
-NoisePer = 0.2             ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
+NoisePer = 0             ### (0 to 1) percentage of noise. NoisePer*average of data = STD of white noise
 NumDyn = 2               ### number of dynamics equation
 PosteriorSample = 1000    ### posterior sampling numbers
 IC_test = 0               ### test on different initial condition
@@ -26,7 +26,7 @@ IC_test = 0               ### test on different initial condition
 time_integration = False   ### perform reconstruction based on inferred parameters
 plotfunc = False           ### plot the reconstruction result
 comparefunc = True        ### Enable comparsion (linear regression with finite difference)
-smooth_tpye = 'SG'    ### None, SG or Spline,   
+smooth_tpye = 'SG'    ### None or SG   
 save_data = True
 
 ### Load data and add noise
@@ -207,30 +207,18 @@ if comparefunc == True:
 
     ### denoise by total variation regularization (smoothing)
     if NoisePer != 0:
-        ### False = no-smoothing
-        ### SFD = Smooth via total variation and differentiation
-        ### Kalman = kalman filter
+
         if smooth_tpye == 'None':
-            delta_y = sort_ytrain[1:,:]-sort_ytrain[:-1,:]
-            delta_t = sort_Xtrain[1:,:]-sort_Xtrain[:-1,:]
+            delta_y = sort_ytrain[2:,:]-sort_ytrain[:-2,:]
+            delta_t = sort_Xtrain[2:,:]-sort_Xtrain[:-2,:]
             d_hat = np.divide(delta_y,delta_t)
-            y_smooth = sort_ytrain[1:,:]
+            y_smooth = sort_ytrain[1:-1,:]
 
         elif smooth_tpye == 'SG':
-            # y_smooth = savgol_filter(sort_ytrain, window_length=51,polyorder=3, axis=0)
-            # # delta_y = y_smooth[1:,:]-y_smooth[:-1,:]
-            # # delta_t = sort_Xtrain[1:,:]-sort_Xtrain[:-1,:]
-            # # d_hat = np.divide(delta_y,delta_t)
-            # # y_smooth = y_smooth[1:,:]
             neigh_inte = 0.3
             d_hat = ps.SINDyDerivative(kind="savitzky_golay", left=neigh_inte, right=neigh_inte, order=3)._differentiate(sort_ytrain,sort_Xtrain[:,0])
             sfd = SmoothedFiniteDifference(axis=0)
             y_smooth = sfd.smoother(sort_ytrain,window_length=11,polyorder=3,axis=0)  ### need cases to cases tuning 
-            # d_hat = sfd._differentiate(sort_ytrain,sort_Xtrain[:,0])/2
-
-        # elif smooth_tpye == 'TV':
-        #     d_hat = ps.SpectralDerivative()._differentiate(sort_ytrain,sort_Xtrain[:,0])
-        #     y_smooth = sort_ytrain
 
         
         plt.clf()
@@ -252,19 +240,20 @@ if comparefunc == True:
         
 
     else:
-        ### Finite different to comput the derivative for noise-free data (without smoothing)
-        delta_y = sort_ytrain[1:,:]-sort_ytrain[:-1,:]
-        delta_t = sort_Xtrain[1:,:]-sort_Xtrain[:-1,:]
+        ### Finite different to comput the derivative for noise-free data
+        delta_y = sort_ytrain[2:,:]-sort_ytrain[:-2,:]
+        delta_t = sort_Xtrain[2:,:]-sort_Xtrain[:-2,:]
         d_hat = np.divide(delta_y,delta_t)
-        y_smooth = sort_ytrain[1:,:]
+        y_smooth = sort_ytrain[1:-1,:]
 
-        plt.clf()
-        plt.plot(sort_Xtrain,sort_ytrain,'*',label='data')
-        plt.plot(sort_Xtrain[1:,:],y_smooth,'*',label='smoothed data')
-        plt.plot(timedata[:8000],x1[:8000],'k-')
-        plt.plot(timedata[:8000],x2[:8000],'k-') 
-        plt.legend()       
-        plt.savefig('smoothed_data.png')
+
+        # plt.clf()
+        # plt.plot(sort_Xtrain,sort_ytrain,'*',label='data')
+        # plt.plot(sort_Xtrain[1:,:],y_smooth,'*',label='smoothed data')
+        # plt.plot(timedata[:8000],x1[:8000],'k-')
+        # plt.plot(timedata[:8000],x2[:8000],'k-') 
+        # plt.legend()       
+        # plt.savefig('smoothed_data.png')
 
 
     ### Inference
