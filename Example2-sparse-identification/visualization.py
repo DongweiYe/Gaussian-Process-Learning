@@ -70,18 +70,18 @@ def multiplot_dist(samples,eqn,name):
     plt.rcParams.update(params)
     
     y_tick_labels = [r'$1$',r'$x_1$', r'$x_2$', r'$x_1^2$', r'$x_2^2$', r'$x_1 x_2$']
+    y_tick_labels_empty = ['','','','','','','','']
 
     for term, ax in enumerate(axes):
-        
         if eqn == '0':
             sns.kdeplot(samples[:,term], ax=ax,bw_adjust=3, color = 'tab:blue',linewidths=2.5,fill=True)
         else:
             sns.kdeplot(samples[:,term], ax=ax,bw_adjust=3, color = 'tab:orange',linewidths=2.5 ,fill=True)
         ax.axvline(gt_para[term],linestyle='--',linewidth=2,color='black')
         if eqn == '0':
-            ax.set_ylabel(y_tick_labels[term],fontsize=20)
+            ax.set_ylabel(y_tick_labels_empty[term],fontsize=18)
         else:
-            ax.set_ylabel(y_tick_labels[term],fontsize=20)
+            ax.set_ylabel(y_tick_labels_empty[term],fontsize=18)
         ax.set_xlim(gt_para[term]-5e-1,gt_para[term]+5e-1)
         ax.get_yaxis().set_ticks([])
         ax.spines['right'].set_visible(False)
