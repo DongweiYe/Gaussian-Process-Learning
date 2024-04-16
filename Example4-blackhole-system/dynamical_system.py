@@ -1,22 +1,21 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
 
 def BBHmodel(x_initial,total_time,dt,modelparameter):
     
-    preylist = [x1_initial]
-    predatorlist = [x2_initial]
-
     num_T = int(total_time/dt)
 
-    pre_prey = x1_initial
-    pre_pred = x2_initial
+    def model_derivative(t, state, p,e):
+        phi,chi = state
 
-    def model_derivative(t, state, a, b, c, d):
-        x,y = state
-        return [a*x-b*x*y, c*x*y-d*y]
+        chi_dynamics = (p-2-2*e*np.cos(chi))*np.square(1+e*np.cos(chi))*np.sqrt(p-6-2*e*np.cos(chi))/(np.square(p))/np.sqrt(np.square(p-2)-4*np.square(e))
+        phi_dynamics = (p-2-2*e*np.cos(chi))*np.square(1+e*np.cos(chi))/(np.power(p,1.5))/np.sqrt(np.square(p-2)-4*np.square(e))
+        
+        return [phi_dynamics, chi_dynamics]
 
-    sol = solve_ivp(model_derivative, [0, total_time], [pre_prey, pre_pred],\
-                    args=(modelparameter[0], modelparameter[1], modelparameter[2], modelparameter[3]),\
+    sol = solve_ivp(model_derivative, [0, total_time], x_initial,\
+                    args=(modelparameter[0], modelparameter[1]),\
                     method='BDF',t_eval=np.linspace(0,total_time,num_T+1))
     
     return sol.y[0,:], sol.y[1,:]

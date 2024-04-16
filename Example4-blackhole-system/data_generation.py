@@ -10,19 +10,38 @@ from dynamical_system import *
 ### Definite parameters
 e = 0.5
 p = 100
-M = 1
+
 phi_0 = 0
 chi_0 = np.pi
 
 dt = 1
-T = 6e4
+T = 1e4
 
 time = np.arange(0,T+(T/(T/dt))*0.1,T/(T/dt))
-xlist = ODEmodel([phi_0,chi_0],T,dt,[e,p,M])
+xlist = BBHmodel([phi_0,chi_0],T,dt,[p,e])
 
-plt.plot(time,xlist)
-plt.savefig('data.png',bbox_inches='tight')
+rt = p/(1+e*np.cos(xlist[1]))
+xt = -rt*np.cos(xlist[0]) 
+yt = -rt*np.sin(xlist[0])
 
-# np.save('data/ODEdata_0.npy',xlist)
-# np.save('data/time.npy',time)
+np.save('data/BBH_x1.npy',xlist[0])
+np.save('data/BBH_x2.npy',xlist[1])
+np.save('data/time.npy',time)
+
+
+
+# plt.plot(time,xlist[0])
+# plt.plot(time,xlist[1])
+# plt.savefig('data.png',bbox_inches='tight')
+
+# plt.clf()
+# plt.plot(xt,yt)
+# plt.xlim([-200,200])
+# plt.ylim([-200,200])
+# ax = plt.gca()
+# ax.set_aspect('equal', adjustable='box')
+# plt.savefig('trajectory.png',bbox_inches='tight')
+
+
+
 
