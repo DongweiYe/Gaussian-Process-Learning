@@ -1,12 +1,12 @@
  ![](https://github.com/DongweiYe/Gaussian-Process-Learning/blob/main/github_figure.png)
 ### Gaussian process learning for nonlinear dynamics
-This repository is associated with the preprint of "[Gaussian process learning of nonlinear dynamics](https://arxiv.org/abs/2312.12193)". 
+This repository is associated with the publication of "[Gaussian process learning of nonlinear dynamics]([https://arxiv.org/abs/2312.12193](https://www.sciencedirect.com/science/article/pii/S1007570424003691))". 
 
 This repository presents the implementation of four scenarios, including identification and estimation with an affine parametrization, nonlinear parametric approximation without prior knowledge, and general parameter estimation for a given dynamical system. Each scenario is corresponding to the numerical examples presented in the paper: 
 
 **Example 1 - Parameter estimation for Lotka–Volterra model (with analytical posterior)**
 - `LotkaVolterra_model.py`: contain the function of Lotka Volterra model.
-- `data_generation.py`: execute the generate the data to train a data-driven model.
+- `data_generation.py`: execute to generate the data to train a data-driven model.
 - `Scene1.py`: execute to perform Gaussian process learning. It also includes the implementation of the comparison method FD+LinReg.
 - `plot_compare.py`: visualize the comparison result.
       
