@@ -24,7 +24,7 @@ This repository presents the implementation of four scenarios, including identif
 - `Scene3.py`: execute to perform Gaussian process learning.
 - `Scene3_IC.py`: execute to perform Gaussian process learning with data from multiple trajectories.
 
-**Example 4 - Parameter estimation for binary black-hole system (with MCMC)**
+**Example 4 - Parameter estimation for binary black-hole system**
 - `dynamical_system.py`: contain the function of 1D ODE system.
 - `data_generation.py`: execute the generate the data to train a data-driven model.
 - `Scene4.py`: execute to perform Gaussian process learning.
